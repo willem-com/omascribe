@@ -1,5 +1,13 @@
 <RCC>
     <qresource prefix="/">
         <file alias="Main.qml">Main.qml</file>
+        <file alias="icons/pen.svg">icons/pen.svg</file>
+        <file alias="icons/eraser.svg">icons/eraser.svg</file>
+        <file alias="icons/select.svg">icons/select.svg</file>
+        <file alias="icons/ruler.svg">icons/ruler.svg</file>
+        <file alias="icons/undo.svg">icons/undo.svg</file>
+        <file alias="icons/redo.svg">icons/redo.svg</file>
+        <file alias="icons/plus.svg">icons/plus.svg</file>
+        <file alias="icons/trash.svg">icons/trash.svg</file>
     </qresource>
 </RCC>

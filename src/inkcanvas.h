@@ -4,7 +4,6 @@
 
 #include <QColor>
 #include <QElapsedTimer>
-#include <QImage>
 #include <QQuickPaintedItem>
 #include <QString>
 #include <QVector>
@@ -97,8 +96,6 @@ private:
     void drawLasso(QPainter *painter) const;
     void drawSelection(QPainter *painter) const;
     void drawCursor(QPainter *painter) const;
-    void invalidateCache();
-    void ensureCache();
     void clampView();
     void autoGrowAndFollow(QPointF doc);
     QPointF rulerPoint(QPointF start, QPointF current) const;
@@ -132,8 +129,4 @@ private:
     bool m_touchMoved = false;
     QPointF m_touchCentroid;
     QElapsedTimer m_touchClock;
-    QImage m_cache;
-    qreal m_cacheViewY = -1;
-    qreal m_cacheDpr = 0;
-    bool m_cacheDirty = true;
 };

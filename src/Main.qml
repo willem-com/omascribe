@@ -4,6 +4,7 @@ import QtQuick.Controls.Material
 import QtQuick.Dialogs as Dialogs
 import QtQuick.Layouts
 import QtQuick.Window
+import Qt5Compat.GraphicalEffects
 import Omascribe
 
 ApplicationWindow {
@@ -569,7 +570,7 @@ ApplicationWindow {
         standardButtons: Dialog.Close
         anchors.centerIn: parent
         contentItem: Label {
-            text: "Pen draws. Finger pans. Wheel pans.\nTwo-finger tap  Undo\nThree-finger tap  Redo\nP  Pen\nE  Eraser (tilted block in the toolbar)\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nDelete  Delete selection\nF11  Fullscreen\nNotes  (narrow window) opens the note list"
+            text: "Pen draws. Finger pans. Wheel pans.\nTwo-finger tap  Undo\nThree-finger tap  Redo\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nDelete  Delete selection\nF11  Fullscreen\nNotes  (narrow window) opens the note list"
             lineHeight: 1.45
         }
     }
@@ -582,76 +583,21 @@ ApplicationWindow {
         signal clicked()
         width: 28
         height: 28
-        Canvas {
-            id: cv
-            readonly property real dpr: Screen.devicePixelRatio
-            width: g.width * dpr
-            height: g.height * dpr
-            transformOrigin: Item.TopLeft
-            scale: 1 / dpr
-            onDprChanged: requestPaint()
-            onPaint: {
-                var c = getContext("2d");
-                c.setTransform(dpr, 0, 0, dpr, 0, 0);
-                c.clearRect(0, 0, width, height);
-                c.strokeStyle = g.ink;
-                c.fillStyle = g.ink;
-                c.lineWidth = 1.5;
-                c.lineCap = "round";
-                c.lineJoin = "round";
-                c.beginPath();
-                if (g.glyph === "pen") {
-                    c.moveTo(7, 21); c.lineTo(9, 13); c.lineTo(19, 7); c.lineTo(21, 9); c.lineTo(15, 19); c.lineTo(7, 21);
-                    c.stroke();
-                } else if (g.glyph === "eraser") {
-                    c.moveTo(6, 17);
-                    c.lineTo(12, 7);
-                    c.lineTo(22, 11);
-                    c.lineTo(16, 21);
-                    c.closePath();
-                    c.stroke();
-                    c.beginPath();
-                    c.moveTo(9, 16);
-                    c.lineTo(19, 12);
-                    c.stroke();
-                } else if (g.glyph === "select") {
-                    c.setLineDash([3, 2]);
-                    c.ellipse(7, 7, 14, 14);
-                    c.stroke();
-                    c.setLineDash([]);
-                } else if (g.glyph === "ruler") {
-                    c.moveTo(6, 20); c.lineTo(22, 8);
-                    c.moveTo(10, 17); c.lineTo(8, 14);
-                    c.moveTo(14, 14); c.lineTo(12, 11);
-                    c.moveTo(18, 11); c.lineTo(16, 8);
-                    c.stroke();
-                } else if (g.glyph === "undo") {
-                    c.arc(15, 16, 7, -0.2, 3.4, false);
-                    c.stroke();
-                    c.beginPath();
-                    c.moveTo(7, 8); c.lineTo(7, 14); c.lineTo(13, 14);
-                    c.stroke();
-                } else if (g.glyph === "redo") {
-                    c.arc(13, 16, 7, 3.34, 6.48, false);
-                    c.stroke();
-                    c.beginPath();
-                    c.moveTo(21, 8); c.lineTo(21, 14); c.lineTo(15, 14);
-                    c.stroke();
-                } else if (g.glyph === "plus") {
-                    c.moveTo(14, 7); c.lineTo(14, 21);
-                    c.moveTo(7, 14); c.lineTo(21, 14);
-                    c.stroke();
-                } else if (g.glyph === "trash") {
-                    c.moveTo(9, 10); c.lineTo(19, 10); c.lineTo(18, 21); c.lineTo(10, 21); c.closePath();
-                    c.moveTo(11, 8); c.lineTo(17, 8);
-                    c.stroke();
-                }
-            }
-            Connections {
-                target: g
-                function onInkChanged() { cv.requestPaint(); }
-                function onGlyphChanged() { cv.requestPaint(); }
-            }
+
+        Image {
+            id: ico
+            anchors.centerIn: parent
+            width: 18
+            height: 18
+            source: "qrc:/icons/" + g.glyph + ".svg"
+            sourceSize.width: 36
+            sourceSize.height: 36
+            visible: false
+        }
+        ColorOverlay {
+            anchors.fill: ico
+            source: ico
+            color: g.ink
         }
         MouseArea {
             id: hit
