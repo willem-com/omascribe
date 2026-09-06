@@ -23,6 +23,26 @@ inline QColor resolveColor(const QString &id, bool dark)
     return raw.isValid() ? raw : resolveColor(QStringLiteral("ink"), dark);
 }
 
+// Share/print: always dark marks on white paper, never the on-screen theme.
+inline QColor resolvePrintColor(const QString &id)
+{
+    if (id == QLatin1String("ink"))
+        return QColor(QStringLiteral("#111111"));
+    if (id == QLatin1String("blue"))
+        return QColor(QStringLiteral("#155a8a"));
+    if (id == QLatin1String("red"))
+        return QColor(QStringLiteral("#a32d22"));
+    if (id == QLatin1String("gray"))
+        return QColor(QStringLiteral("#3f4550"));
+    const QColor raw(id);
+    if (!raw.isValid())
+        return QColor(QStringLiteral("#111111"));
+    const double luminance = 0.299 * raw.redF() + 0.587 * raw.greenF() + 0.114 * raw.blueF();
+    if (luminance > 0.55)
+        return QColor(QStringLiteral("#111111"));
+    return raw;
+}
+
 inline QString canonicalizeColorId(const QString &raw)
 {
     if (raw == QLatin1String("ink") || raw == QLatin1String("blue")

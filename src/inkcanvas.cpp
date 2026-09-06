@@ -4,17 +4,21 @@
 
 #include <QCursor>
 #include <QHoverEvent>
+#include <QImage>
 #include <QPixmap>
+#include <QVector>
 #include <QInputDevice>
 #include <QLineF>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPolygonF>
 #include <QPointerEvent>
 #include <QPointingDevice>
 #include <QPainterPath>
 #include <QTabletEvent>
 #include <QTouchEvent>
 #include <QWheelEvent>
+#include <QQuickWindow>
 #include <QWindow>
 #include <QtMath>
 #include <algorithm>
@@ -34,7 +38,9 @@ InkCanvas::InkCanvas(QQuickItem *parent)
     setAcceptHoverEvents(true);
     setAntialiasing(true);
     setOpaquePainting(true);
-    setFillColor(Qt::transparent);
+    setFillColor(Qt::white);
+    setRenderTarget(QQuickPaintedItem::FramebufferObject);
+    setPerformanceHint(QQuickPaintedItem::FastFBOResizing, true);
     QPixmap blank(1, 1);
     blank.fill(Qt::transparent);
     setCursor(QCursor(blank, 0, 0));
@@ -49,17 +55,22 @@ void InkCanvas::setDocument(Document *document)
         disconnect(m_document, nullptr, this, nullptr);
     m_document = document;
     if (m_document) {
-        connect(m_document, &Document::contentsChanged, this, [this]() { update(); });
+        connect(m_document, &Document::contentsChanged, this, [this]() {
+            invalidateCache();
+            update();
+        });
         connect(m_document, &Document::selectionChanged, this, [this]() { update(); });
         connect(m_document, &Document::geometryChanged, this, [this]() {
             emit documentHeightChanged();
             clampView();
+            invalidateCache();
             update();
         });
     }
     m_viewY = 0;
     m_liveActive = false;
     m_lasso.clear();
+    invalidateCache();
     emit documentChanged();
     emit viewYChanged();
     emit documentHeightChanged();
@@ -94,6 +105,7 @@ void InkCanvas::setInkWidth(qreal width)
         return;
     m_inkWidth = width;
     emit inkWidthChanged();
+    update();
 }
 
 void InkCanvas::setViewY(qreal y)
@@ -103,6 +115,7 @@ void InkCanvas::setViewY(qreal y)
         return;
     m_viewY = next;
     clampView();
+    invalidateCache();
     emit viewYChanged();
     update();
 }
@@ -120,6 +133,7 @@ void InkCanvas::setPaperColor(const QColor &color)
     m_paperColor = color;
     setFillColor(color);
     emit paperColorChanged();
+    invalidateCache();
     update();
 }
 
@@ -129,6 +143,7 @@ void InkCanvas::setGridColor(const QColor &color)
         return;
     m_gridColor = color;
     emit gridColorChanged();
+    invalidateCache();
     update();
 }
 
@@ -138,25 +153,20 @@ void InkCanvas::setDarkMode(bool dark)
         return;
     m_darkMode = dark;
     emit darkModeChanged();
+    invalidateCache();
     update();
 }
 
 void InkCanvas::paint(QPainter *painter)
 {
-    painter->setRenderHint(QPainter::Antialiasing, true);
-    painter->fillRect(boundingRect(), m_paperColor);
+    ensureCache();
+    if (!m_cache.isNull())
+        painter->drawImage(QPointF(0, 0), m_cache);
+    else
+        painter->fillRect(boundingRect(), m_paperColor);
     painter->save();
     painter->translate(0, -m_viewY);
-    drawGrid(painter);
-    if (m_document) {
-        const QRectF view(0, m_viewY, width(), height());
-        const QRectF padded = view.adjusted(-40, -40, 40, 40);
-        for (const Stroke &s : m_document->strokes()) {
-            if (!s.bounds.intersects(padded))
-                continue;
-            drawStroke(painter, s);
-        }
-    }
+    painter->setRenderHint(QPainter::Antialiasing, true);
     if (m_liveActive)
         drawStroke(painter, m_live);
     drawLasso(painter);
@@ -323,6 +333,7 @@ void InkCanvas::geometryChange(const QRectF &newGeometry, const QRectF &oldGeome
     QQuickPaintedItem::geometryChange(newGeometry, oldGeometry);
     emit documentHeightChanged();
     clampView();
+    invalidateCache();
 }
 
 void InkCanvas::handleTablet(QTabletEvent *event)
@@ -369,6 +380,7 @@ void InkCanvas::pointerDown(QPointF local, float pressure, Pointer pointer, bool
             m_document->beginErase();
         if (m_document)
             m_document->eraseAt(m_pressDoc, kEraserRadius);
+        invalidateCache();
         update();
         return;
     }
@@ -407,6 +419,7 @@ void InkCanvas::pointerMove(QPointF local, float pressure, Pointer pointer)
     if (m_document && m_tool == QStringLiteral("eraser") && !m_liveActive && !m_lassoing
         && !m_movingSelection && (m_activePointer == Pointer::Pen || m_activePointer == Pointer::Mouse)) {
         m_document->eraseAt(doc, kEraserRadius);
+        invalidateCache();
         update();
         return;
     }
@@ -539,11 +552,14 @@ void InkCanvas::drawGrid(QPainter *painter) const
     const qreal step = 28;
     const qreal y0 = std::floor(m_viewY / step) * step;
     const qreal y1 = m_viewY + height() + step;
-    painter->setPen(QPen(m_gridColor, 1.1));
+    QPolygonF dots;
+    dots.reserve(int((width() / step) * ((y1 - y0) / step) + 8));
     for (qreal y = y0; y <= y1; y += step) {
         for (qreal x = step; x < width(); x += step)
-            painter->drawPoint(QPointF(x, y));
+            dots.append(QPointF(x, y));
     }
+    painter->setPen(QPen(m_gridColor, 1.1));
+    painter->drawPoints(dots);
 }
 
 void InkCanvas::drawLasso(QPainter *painter) const
@@ -590,10 +606,48 @@ void InkCanvas::drawCursor(QPainter *painter) const
         return;
     }
     const QColor c = resolveColor(m_colorId, m_darkMode);
-    const qreal r = std::max(2.4, m_inkWidth * 0.55);
-    painter->setPen(Qt::NoPen);
+    const qreal r = m_inkWidth * 0.5;
     painter->setBrush(c);
+    painter->setPen(QPen(m_darkMode ? QColor(0, 0, 0, 90) : QColor(255, 255, 255, 90), 1));
     painter->drawEllipse(p, r, r);
+}
+
+void InkCanvas::invalidateCache()
+{
+    m_cacheDirty = true;
+}
+
+void InkCanvas::ensureCache()
+{
+    const qreal dpr = window() ? window()->devicePixelRatio() : 1.0;
+    const int pxW = int(std::ceil(width() * dpr));
+    const int pxH = int(std::ceil(height() * dpr));
+    if (pxW <= 0 || pxH <= 0)
+        return;
+    if (!m_cacheDirty && m_cache.size() == QSize(pxW, pxH)
+        && qFuzzyCompare(m_cacheViewY, m_viewY) && qFuzzyCompare(m_cacheDpr, dpr))
+        return;
+
+    m_cache = QImage(pxW, pxH, QImage::Format_RGB32);
+    m_cache.setDevicePixelRatio(dpr);
+    QPainter cachePainter(&m_cache);
+    cachePainter.setRenderHint(QPainter::Antialiasing, true);
+    cachePainter.fillRect(QRectF(0, 0, width(), height()), m_paperColor);
+    cachePainter.translate(0, -m_viewY);
+    drawGrid(&cachePainter);
+    if (m_document) {
+        const QRectF view(0, m_viewY, width(), height());
+        const QRectF padded = view.adjusted(-40, -40, 40, 40);
+        for (const Stroke &s : m_document->strokes()) {
+            if (!s.bounds.intersects(padded))
+                continue;
+            paintStroke(&cachePainter, s, strokePaintColor(s));
+        }
+    }
+    cachePainter.end();
+    m_cacheDirty = false;
+    m_cacheViewY = m_viewY;
+    m_cacheDpr = dpr;
 }
 
 QColor InkCanvas::strokePaintColor(const Stroke &stroke) const

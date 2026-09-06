@@ -266,12 +266,14 @@ ApplicationWindow {
                         Item {
                             required property string name
                             required property string value
+                            required property string hint
                             required property int index
                             width: win.scaledSize(28)
                             height: toolRow.height
                             ToolGlyph {
                                 anchors.centerIn: parent
                                 glyph: name
+                                tip: hint
                                 ink: toolRow.currentIndex === index ? win.accentColor : win.mutedColor
                                 onClicked: {
                                     toolRow.currentIndex = index;
@@ -504,10 +506,10 @@ ApplicationWindow {
 
     ListModel {
         id: toolModel
-        ListElement { name: "pen"; value: "pen" }
-        ListElement { name: "eraser"; value: "eraser" }
-        ListElement { name: "select"; value: "select" }
-        ListElement { name: "ruler"; value: "ruler" }
+        ListElement { name: "pen"; value: "pen"; hint: "Pen (P)" }
+        ListElement { name: "eraser"; value: "eraser"; hint: "Eraser (E)" }
+        ListElement { name: "select"; value: "select"; hint: "Select (V)" }
+        ListElement { name: "ruler"; value: "ruler"; hint: "Ruler (L)" }
     }
 
     ListModel {
@@ -532,7 +534,7 @@ ApplicationWindow {
         standardButtons: Dialog.Close
         anchors.centerIn: parent
         contentItem: Label {
-            text: "Pen draws. Finger pans. Wheel pans.\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nDelete  Delete selection\nF11  Fullscreen\nNotes  (narrow window) opens the note list"
+            text: "Pen draws. Finger pans. Wheel pans.\nP  Pen\nE  Eraser (tilted block in the toolbar)\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nDelete  Delete selection\nF11  Fullscreen\nNotes  (narrow window) opens the note list"
             lineHeight: 1.45
         }
     }
@@ -540,6 +542,7 @@ ApplicationWindow {
     component ToolGlyph: Item {
         id: g
         property string glyph
+        property string tip
         property color ink: "#666"
         signal clicked()
         width: 28
@@ -566,7 +569,15 @@ ApplicationWindow {
                     c.moveTo(7, 21); c.lineTo(9, 13); c.lineTo(19, 7); c.lineTo(21, 9); c.lineTo(15, 19); c.lineTo(7, 21);
                     c.stroke();
                 } else if (g.glyph === "eraser") {
-                    c.rect(7, 9, 14, 10);
+                    c.moveTo(6, 17);
+                    c.lineTo(12, 7);
+                    c.lineTo(22, 11);
+                    c.lineTo(16, 21);
+                    c.closePath();
+                    c.stroke();
+                    c.beginPath();
+                    c.moveTo(9, 16);
+                    c.lineTo(19, 12);
                     c.stroke();
                 } else if (g.glyph === "select") {
                     c.setLineDash([3, 2]);
@@ -596,10 +607,15 @@ ApplicationWindow {
             }
         }
         MouseArea {
+            id: hit
             anchors.fill: parent
             anchors.margins: -6
+            hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onClicked: g.clicked()
         }
+        ToolTip.visible: hit.containsMouse && g.tip.length > 0
+        ToolTip.text: g.tip
+        ToolTip.delay: 350
     }
 }

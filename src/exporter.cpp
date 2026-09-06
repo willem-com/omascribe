@@ -16,7 +16,7 @@ namespace {
 constexpr qreal kPageWidthPt = 595.28; // A4
 constexpr qreal kMarginPt = 36;
 constexpr qreal kTitlePt = 18;
-const QColor kPaper(QStringLiteral("#f7f4ec"));
+const QColor kPaper(QStringLiteral("#ffffff"));
 
 struct Layout {
     QSizeF page;
@@ -53,7 +53,7 @@ void renderNote(QPainter *painter, const Document *doc, const Layout &layout)
         QFont font(QStringLiteral("iA Writer Quattro S"));
         font.setPointSizeF(kTitlePt);
         painter->setFont(font);
-        painter->setPen(QColor(QStringLiteral("#1a1a1a")));
+        painter->setPen(QColor(QStringLiteral("#111111")));
         painter->drawText(QRectF(kMarginPt, kMarginPt, layout.page.width() - 2 * kMarginPt, kTitlePt + 8),
                           Qt::AlignLeft | Qt::AlignVCenter, doc->title());
     }
@@ -62,7 +62,7 @@ void renderNote(QPainter *painter, const Document *doc, const Layout &layout)
     painter->translate(layout.origin);
     painter->scale(layout.scale, layout.scale);
     for (const Stroke &stroke : doc->strokes())
-        paintStroke(painter, stroke, resolveColor(stroke.colorId, false));
+        paintStroke(painter, stroke, resolvePrintColor(stroke.colorId));
     painter->restore();
 }
 
