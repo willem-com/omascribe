@@ -37,6 +37,7 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     QString notesDir() const { return m_dir; }
+    QString dataDir() const;
     void reload();
     void upsert(const Document *doc);
     void removeById(const QString &id);

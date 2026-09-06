@@ -68,6 +68,7 @@ private:
     void watchOmarchyTheme();
     bool loadFromPath(const QString &path);
     bool writeDocument();
+    void writeReadout();
     void setStatus(const QString &status);
     void scheduleSave();
     QString defaultNotePath(const QString &id) const;

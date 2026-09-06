@@ -47,6 +47,25 @@ the on-screen theme. The original note is not replaced.
 
 Hardware eraser tip (if the pen has one) erases regardless of the current tool.
 
+## Live agent readout
+
+While Omascribe is open, the current note is mirrored for agents (no screenshot of
+the window required):
+
+```
+~/.local/share/omascribe/current.json   metadata: title, strokes, colors, bounds, paths
+~/.local/share/omascribe/current.png    ink on white paper (for vision)
+~/.local/share/omascribe/current.svg    same ink as vectors
+~/.local/share/omascribe/current.omascribe  symlink to the live JSON note
+```
+
+```
+omascribe --readout
+```
+
+prints `current.json`. Autosave refreshes these files. `current.png` is the thing to
+open to *see* the drawing; the `.omascribe` file is the geometry.
+
 ## Files
 
 Vector strokes, not bitmaps:

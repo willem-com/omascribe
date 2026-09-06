@@ -1,3 +1,4 @@
+#include <QDir>
 #include <QFile>
 #include <QFont>
 #include <QGuiApplication>
@@ -60,6 +61,13 @@ static int runSelfTest()
     ok = ok && pdf.open(QIODevice::ReadOnly) && svg.open(QIODevice::ReadOnly)
         && pdf.read(4) == QByteArray("%PDF")
         && svg.readAll().contains("<svg");
+    ok = ok && writeAgentReadout(doc, tmp.path());
+    QFile readout(tmp.filePath(QStringLiteral("current.json")));
+    QFile preview(tmp.filePath(QStringLiteral("current.png")));
+    ok = ok && readout.open(QIODevice::ReadOnly) && preview.open(QIODevice::ReadOnly)
+        && QJsonDocument::fromJson(readout.readAll()).object().value(QStringLiteral("format")).toString()
+            == QStringLiteral("omascribe-readout")
+        && preview.read(8).startsWith("\x89PNG");
 
     delete round;
     delete doc;
@@ -76,6 +84,18 @@ int main(int argc, char *argv[])
     if (argc > 1 && QByteArray(argv[1]) == QByteArrayLiteral("--self-test")) {
         QGuiApplication app(argc, argv);
         return runSelfTest();
+    }
+
+    if (argc > 1 && QByteArray(argv[1]) == QByteArrayLiteral("--readout")) {
+        const QString path = QDir::homePath() + QStringLiteral("/.local/share/omascribe/current.json");
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            std::fprintf(stderr, "no live readout at %s\n", qUtf8Printable(path));
+            return 1;
+        }
+        const QByteArray body = file.readAll();
+        std::fwrite(body.constData(), 1, size_t(body.size()), stdout);
+        return 0;
     }
 
     if (argc >= 4 && (QByteArray(argv[1]) == QByteArrayLiteral("--export-pdf")

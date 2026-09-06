@@ -4,13 +4,22 @@
 #include "ink.h"
 #include "palette.h"
 
+#include <QDir>
+#include <QFile>
 #include <QFont>
+#include <QImage>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPageSize>
 #include <QPainter>
 #include <QPdfWriter>
 #include <QRegularExpression>
+#include <QSaveFile>
+#include <QSet>
 #include <QSvgGenerator>
 #include <algorithm>
+#include <cmath>
 
 namespace {
 constexpr qreal kPageWidthPt = 595.28; // A4
@@ -120,5 +129,76 @@ bool exportNoteSvg(const Document *doc, const QString &path)
         return false;
     renderNote(&painter, doc, layout);
     painter.end();
+    return true;
+}
+
+bool exportNotePng(const Document *doc, const QString &path)
+{
+    if (!doc || path.isEmpty())
+        return false;
+    const Layout layout = layoutFor(doc);
+    const qreal dpr = 2.0;
+    const QSize px(std::max(1, int(std::ceil(layout.page.width() * dpr))),
+                   std::max(1, int(std::ceil(layout.page.height() * dpr))));
+    QImage image(px, QImage::Format_RGB32);
+    image.setDevicePixelRatio(dpr);
+    image.fill(Qt::white);
+    QPainter painter(&image);
+    renderNote(&painter, doc, layout);
+    painter.end();
+    return image.save(path, "PNG");
+}
+
+bool writeAgentReadout(const Document *doc, const QString &dir)
+{
+    if (!doc || dir.isEmpty())
+        return false;
+    QDir().mkpath(dir);
+    const QString pngPath = dir + QStringLiteral("/current.png");
+    const QString svgPath = dir + QStringLiteral("/current.svg");
+    const QString jsonPath = dir + QStringLiteral("/current.json");
+    const QString linkPath = dir + QStringLiteral("/current.omascribe");
+
+    exportNotePng(doc, pngPath);
+    exportNoteSvg(doc, svgPath);
+
+    QSet<QString> colors;
+    for (const Stroke &s : doc->strokes())
+        colors.insert(s.colorId.isEmpty() ? QStringLiteral("ink") : s.colorId);
+    QJsonArray colorList;
+    for (const QString &c : colors)
+        colorList.append(c);
+
+    const QRectF bounds = strokesBounds(doc->strokes());
+    QJsonObject box;
+    box.insert(QStringLiteral("x"), bounds.x());
+    box.insert(QStringLiteral("y"), bounds.y());
+    box.insert(QStringLiteral("width"), bounds.width());
+    box.insert(QStringLiteral("height"), bounds.height());
+
+    QJsonObject o;
+    o.insert(QStringLiteral("format"), QStringLiteral("omascribe-readout"));
+    o.insert(QStringLiteral("version"), 1);
+    o.insert(QStringLiteral("id"), doc->id());
+    o.insert(QStringLiteral("title"), doc->title());
+    o.insert(QStringLiteral("path"), doc->filePath());
+    o.insert(QStringLiteral("preview"), pngPath);
+    o.insert(QStringLiteral("svg"), svgPath);
+    o.insert(QStringLiteral("modified"), doc->modifiedTime().toUTC().toString(Qt::ISODateWithMs));
+    o.insert(QStringLiteral("strokeCount"), doc->strokeCount());
+    o.insert(QStringLiteral("colors"), colorList);
+    o.insert(QStringLiteral("bounds"), box);
+    o.insert(QStringLiteral("hint"),
+             QStringLiteral("preview is the ink on white paper. path is the live vector JSON."));
+
+    QSaveFile file(jsonPath);
+    if (!file.open(QIODevice::WriteOnly))
+        return false;
+    file.write(QJsonDocument(o).toJson(QJsonDocument::Indented));
+    if (!file.commit())
+        return false;
+
+    QFile::remove(linkPath);
+    QFile::link(doc->filePath(), linkPath);
     return true;
 }

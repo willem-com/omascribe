@@ -77,6 +77,7 @@ void Backend::newNote()
     connect(m_document, &Document::titleChanged, this, &Backend::scheduleSave);
     writeDocument();
     m_notes->upsert(m_document);
+    writeReadout();
     m_currentIndex = m_notes->indexOfId(m_document->id());
     emit documentChanged();
     emit currentIndexChanged();
@@ -132,6 +133,7 @@ void Backend::saveNow()
         return;
     if (writeDocument()) {
         m_notes->upsert(m_document);
+        writeReadout();
         setStatus(QStringLiteral("Saved"));
     }
 }
@@ -287,7 +289,15 @@ bool Backend::loadFromPath(const QString &path)
     connect(m_document, &Document::contentsChanged, this, &Backend::scheduleSave);
     connect(m_document, &Document::titleChanged, this, &Backend::scheduleSave);
     emit documentChanged();
+    writeReadout();
     return true;
+}
+
+void Backend::writeReadout()
+{
+    if (!m_document)
+        return;
+    writeAgentReadout(m_document, m_notes->dataDir());
 }
 
 bool Backend::writeDocument()

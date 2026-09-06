@@ -3,6 +3,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -27,6 +28,11 @@ NoteStore::NoteStore(QObject *parent)
     }
 
     reload();
+}
+
+QString NoteStore::dataDir() const
+{
+    return QFileInfo(m_dir).dir().absolutePath();
 }
 
 int NoteStore::rowCount(const QModelIndex &parent) const
