@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+
+if [ ! -x "$ROOT/build/omascribe" ]; then
+  "$ROOT/bin/build"
+fi
+
+install -Dm755 "$ROOT/build/omascribe" "$HOME/.local/bin/omascribe"
+install -Dm644 "$ROOT/pkgbuild/omascribe.desktop" "$HOME/.local/share/applications/omascribe.desktop"
+install -Dm644 "$ROOT/pkgbuild/omascribe.svg" "$HOME/.local/share/icons/hicolor/scalable/apps/omascribe.svg"
+
+# Point the desktop file at the installed binary.
+sed -i "s|^Exec=omascribe|Exec=$HOME/.local/bin/omascribe|" "$HOME/.local/share/applications/omascribe.desktop"
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database "$HOME/.local/share/applications" >/dev/null 2>&1 || true
+fi
+
+echo "Installed $HOME/.local/bin/omascribe"

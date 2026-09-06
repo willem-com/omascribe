@@ -1,0 +1,8 @@
+build/
+*.o
+moc_*.cpp
+qrc_*.cpp
+Makefile
+.qmake.stash
+*.user
+omawrite-ref/
