@@ -20,7 +20,7 @@ static int runSelfTest()
     Stroke s;
     s.id = QStringLiteral("stroke-1");
     s.tool = QStringLiteral("fineliner");
-    s.color = QColor(QStringLiteral("#222324"));
+    s.colorId = QStringLiteral("#222324");
     s.width = 2.4f;
     s.points = {
         {10.f, 20.f, 0.4f},
@@ -39,6 +39,7 @@ static int runSelfTest()
         && round->title() == QStringLiteral("Test note")
         && qFuzzyCompare(round->strokes().at(0).points.at(1).x, 14.5f)
         && round->strokes().at(0).hits(QPointF(14.5, 28.25), 2.f)
+        && round->strokes().at(0).colorId == QStringLiteral("ink")
         && json.value(QStringLiteral("format")).toString() == QStringLiteral("omascribe");
     delete round;
     delete doc;

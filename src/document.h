@@ -1,6 +1,5 @@
 #pragma once
 
-#include <QColor>
 #include <QDateTime>
 #include <QJsonObject>
 #include <QObject>
@@ -19,7 +18,7 @@ struct InkPoint {
 struct Stroke {
     QString id;
     QString tool = QStringLiteral("fineliner");
-    QColor color = Qt::black;
+    QString colorId = QStringLiteral("ink");
     float width = 2.4f;
     QVector<InkPoint> points;
     QRectF bounds;

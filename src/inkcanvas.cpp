@@ -1,7 +1,9 @@
 #include "inkcanvas.h"
+#include "palette.h"
 
 #include <QCursor>
 #include <QHoverEvent>
+#include <QPixmap>
 #include <QInputDevice>
 #include <QLineF>
 #include <QMouseEvent>
@@ -45,6 +47,9 @@ InkCanvas::InkCanvas(QQuickItem *parent)
     setAntialiasing(true);
     setOpaquePainting(true);
     setFillColor(Qt::transparent);
+    QPixmap blank(1, 1);
+    blank.fill(Qt::transparent);
+    setCursor(QCursor(blank, 0, 0));
     m_clock.start();
 }
 
@@ -84,12 +89,14 @@ void InkCanvas::setTool(const QString &tool)
     update();
 }
 
-void InkCanvas::setInkColor(const QColor &color)
+void InkCanvas::setColorId(const QString &id)
 {
-    if (m_inkColor == color)
+    const QString next = canonicalizeColorId(id);
+    if (m_colorId == next)
         return;
-    m_inkColor = color;
-    emit inkColorChanged();
+    m_colorId = next;
+    emit colorIdChanged();
+    update();
 }
 
 void InkCanvas::setInkWidth(qreal width)
@@ -355,6 +362,7 @@ void InkCanvas::handleTablet(QTabletEvent *event)
 
 void InkCanvas::pointerDown(QPointF local, float pressure, Pointer pointer, bool eraserTip)
 {
+    emit engaged();
     m_activePointer = pointer;
     m_lastLocal = local;
     m_pressDoc = toDoc(local);
@@ -477,7 +485,7 @@ void InkCanvas::beginStroke(QPointF doc, float pressure)
 {
     m_live = Stroke();
     m_live.tool = QStringLiteral("fineliner");
-    m_live.color = m_inkColor;
+    m_live.colorId = m_colorId;
     m_live.width = float(m_inkWidth);
     m_live.points.append(InkPoint{float(doc.x()), float(doc.y()), pressure});
     m_liveActive = true;
@@ -538,7 +546,7 @@ void InkCanvas::drawStroke(QPainter *painter, const Stroke &stroke) const
     if (stroke.points.isEmpty())
         return;
     painter->setPen(Qt::NoPen);
-    painter->setBrush(stroke.color);
+    painter->setBrush(strokePaintColor(stroke));
     if (stroke.points.size() == 1) {
         const float r = widthAt(stroke, stroke.points[0]) * 0.5f;
         painter->drawEllipse(QPointF(stroke.points[0].x, stroke.points[0].y), r, r);
@@ -606,14 +614,31 @@ void InkCanvas::drawSelection(QPainter *painter) const
 
 void InkCanvas::drawCursor(QPainter *painter) const
 {
-    if (!m_hovering)
+    if (!m_hovering && !m_liveActive)
         return;
     const QPointF p(m_hoverDoc.x(), m_hoverDoc.y() - m_viewY);
     if (m_tool == QStringLiteral("eraser")) {
-        painter->setPen(QPen(m_darkMode ? QColor(255, 255, 255, 140) : QColor(0, 0, 0, 120), 1));
+        painter->setPen(QPen(m_darkMode ? QColor(255, 255, 255, 160) : QColor(0, 0, 0, 140), 1.2));
         painter->setBrush(Qt::NoBrush);
         painter->drawEllipse(p, kEraserRadius, kEraserRadius);
+        return;
     }
+    if (m_tool == QStringLiteral("select")) {
+        painter->setPen(QPen(m_darkMode ? QColor(255, 255, 255, 160) : QColor(0, 0, 0, 140), 1.1));
+        painter->setBrush(Qt::NoBrush);
+        painter->drawEllipse(p, 5, 5);
+        return;
+    }
+    const QColor c = resolveColor(m_colorId, m_darkMode);
+    const qreal r = std::max(2.4, m_inkWidth * 0.55);
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(c);
+    painter->drawEllipse(p, r, r);
+}
+
+QColor InkCanvas::strokePaintColor(const Stroke &stroke) const
+{
+    return resolveColor(stroke.colorId, m_darkMode);
 }
 
 void InkCanvas::clampView()

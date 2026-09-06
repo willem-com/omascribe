@@ -14,7 +14,7 @@ class InkCanvas : public QQuickPaintedItem {
     Q_OBJECT
     Q_PROPERTY(Document *document READ document WRITE setDocument NOTIFY documentChanged)
     Q_PROPERTY(QString tool READ tool WRITE setTool NOTIFY toolChanged)
-    Q_PROPERTY(QColor inkColor READ inkColor WRITE setInkColor NOTIFY inkColorChanged)
+    Q_PROPERTY(QString colorId READ colorId WRITE setColorId NOTIFY colorIdChanged)
     Q_PROPERTY(qreal inkWidth READ inkWidth WRITE setInkWidth NOTIFY inkWidthChanged)
     Q_PROPERTY(qreal viewY READ viewY WRITE setViewY NOTIFY viewYChanged)
     Q_PROPERTY(qreal documentHeight READ documentHeight NOTIFY documentHeightChanged)
@@ -31,8 +31,8 @@ public:
     QString tool() const { return m_tool; }
     void setTool(const QString &tool);
 
-    QColor inkColor() const { return m_inkColor; }
-    void setInkColor(const QColor &color);
+    QString colorId() const { return m_colorId; }
+    void setColorId(const QString &id);
 
     qreal inkWidth() const { return m_inkWidth; }
     void setInkWidth(qreal width);
@@ -61,8 +61,9 @@ public:
 signals:
     void documentChanged();
     void toolChanged();
-    void inkColorChanged();
+    void colorIdChanged();
     void inkWidthChanged();
+    void engaged();
     void viewYChanged();
     void documentHeightChanged();
     void paperColorChanged();
@@ -100,10 +101,11 @@ private:
     QPointF rulerPoint(QPointF start, QPointF current) const;
     float effectivePressure(float pressure) const;
     bool selectionContains(QPointF doc) const;
+    QColor strokePaintColor(const Stroke &stroke) const;
 
     Document *m_document = nullptr;
     QString m_tool = QStringLiteral("pen");
-    QColor m_inkColor = QColor(QStringLiteral("#222324"));
+    QString m_colorId = QStringLiteral("ink");
     QColor m_paperColor = QColor(QStringLiteral("#f7f4ec"));
     QColor m_gridColor = QColor(0, 0, 0, 28);
     qreal m_inkWidth = 2.4;

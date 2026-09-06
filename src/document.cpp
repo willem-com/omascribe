@@ -1,4 +1,5 @@
 #include "document.h"
+#include "palette.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -90,7 +91,7 @@ QJsonObject Stroke::toJson() const
     QJsonObject o;
     o.insert(QStringLiteral("id"), id);
     o.insert(QStringLiteral("tool"), tool);
-    o.insert(QStringLiteral("color"), color.name(QColor::HexRgb));
+    o.insert(QStringLiteral("color"), colorId);
     o.insert(QStringLiteral("width"), round2(width));
     QJsonArray pts;
     for (const InkPoint &pt : points) {
@@ -109,7 +110,8 @@ Stroke Stroke::fromJson(const QJsonObject &obj)
     if (s.id.isEmpty())
         s.id = newId();
     s.tool = obj.value(QStringLiteral("tool")).toString(QStringLiteral("fineliner"));
-    s.color = QColor(obj.value(QStringLiteral("color")).toString(QStringLiteral("#222324")));
+    s.colorId = canonicalizeColorId(
+        obj.value(QStringLiteral("color")).toString(QStringLiteral("ink")));
     s.width = float(obj.value(QStringLiteral("width")).toDouble(2.4));
     const QJsonArray pts = obj.value(QStringLiteral("p")).toArray();
     s.points.reserve(pts.size() / 3);

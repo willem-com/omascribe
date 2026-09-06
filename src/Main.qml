@@ -33,6 +33,19 @@ ApplicationWindow {
         return Math.max(1, Math.round(pixels * win.textScale));
     }
 
+    // Keep in step with src/palette.h
+    function resolvedInk(name) {
+        if (name === "ink")
+            return win.darkMode ? "#f2f0ea" : "#1a1a1a";
+        if (name === "blue")
+            return win.darkMode ? "#6db3e0" : "#1d6fa8";
+        if (name === "red")
+            return win.darkMode ? "#e07070" : "#c0392b";
+        if (name === "gray")
+            return win.darkMode ? "#a8adb4" : "#5c6370";
+        return name;
+    }
+
     function toggleFullScreen() {
         win.visibility = win.visibility === Window.FullScreen
             ? Window.Windowed
@@ -40,7 +53,6 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
-        colorModel.setProperty(0, "value", win.darkMode ? "#eeeeee" : "#222324");
         var geo = backend.windowGeometry();
         if (geo.width > 200 && geo.height > 200) {
             width = geo.width;
@@ -84,6 +96,7 @@ ApplicationWindow {
         sequence: "Escape"
         context: Qt.WindowShortcut
         onActivated: {
+            titleField.focus = false;
             if (backend.document)
                 backend.document.clearSelection();
             if (compact)
@@ -97,17 +110,267 @@ ApplicationWindow {
     Shortcut { sequences: ["Meta+F", "F11"]; context: Qt.ApplicationShortcut; onActivated: toggleFullScreen() }
     Shortcut { sequence: "Ctrl+?"; context: Qt.ApplicationShortcut; onActivated: shortcutsDialog.open() }
 
-    RowLayout {
+    Item {
         anchors.fill: parent
-        spacing: 0
+
+        InkCanvas {
+            id: canvas
+            anchors.fill: parent
+            anchors.leftMargin: (!win.compact && win.sidebarOpen) ? win.scaledSize(280) : 0
+            document: backend.document
+            paperColor: backend.paperColor
+            gridColor: backend.gridColor
+            darkMode: win.darkMode
+            colorId: colorModel.get(colorRow.currentIndex).name
+            inkWidth: widthModel.get(widthRow.currentIndex).value
+            tool: toolModel.get(toolRow.currentIndex).value
+            onEngaged: {
+                titleField.focus = false;
+                forceActiveFocus();
+            }
+        }
+
+        TextInput {
+            id: titleField
+            anchors.top: parent.top
+            anchors.left: canvas.left
+            anchors.right: parent.right
+            anchors.topMargin: win.scaledSize(18)
+            anchors.leftMargin: win.scaledSize(win.compact ? 88 : 28)
+            anchors.rightMargin: win.scaledSize(28)
+            text: backend.document ? backend.document.title : ""
+            color: win.textColor
+            font.family: "iA Writer Quattro S"
+            font.pixelSize: win.scaledSize(28)
+            selectByMouse: true
+            onTextChanged: {
+                if (backend.document && backend.document.title !== text)
+                    backend.document.title = text;
+            }
+            Keys.onReturnPressed: function(event) {
+                focus = false;
+                canvas.forceActiveFocus();
+                event.accepted = true;
+            }
+            Keys.onEscapePressed: function(event) {
+                focus = false;
+                canvas.forceActiveFocus();
+                event.accepted = true;
+            }
+        }
+
+        Text {
+            anchors.fill: titleField
+            text: "Title"
+            color: win.mutedColor
+            font: titleField.font
+            visible: titleField.text.length === 0 && !titleField.activeFocus
+        }
+
+        Rectangle {
+            id: notesChip
+            visible: win.compact
+            z: 21
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.margins: win.scaledSize(12)
+            height: win.scaledSize(32)
+            width: notesChipLabel.width + win.scaledSize(22)
+            radius: height / 2
+            color: win.darkMode ? "#cc1a1a1a" : "#e6fffdf8"
+            border.color: win.darkMode ? "#333333" : "#ddd6c8"
+            Label {
+                id: notesChipLabel
+                anchors.centerIn: parent
+                text: "Notes"
+                color: win.textColor
+                font.family: "iA Writer Quattro S"
+                font.pixelSize: win.scaledSize(13)
+            }
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -8
+                cursorShape: Qt.PointingHandCursor
+                onClicked: win.sidebarOpen = !win.sidebarOpen
+            }
+        }
+
+        Rectangle {
+            id: toolPill
+            anchors.horizontalCenter: canvas.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: win.scaledSize(18)
+            height: win.scaledSize(48)
+            width: toolRow.width + colorRow.width + widthRow.width + win.scaledSize(56)
+            radius: height / 2
+            color: win.darkMode ? "#cc1a1a1a" : "#e6fffdf8"
+            border.color: win.darkMode ? "#333333" : "#ddd6c8"
+            z: 20
+
+            Row {
+                id: pillRow
+                height: parent.height
+                anchors.centerIn: parent
+                spacing: win.scaledSize(10)
+
+                Row {
+                    id: toolRow
+                    height: parent.height
+                    spacing: 2
+                    property int currentIndex: 0
+                    Repeater {
+                        model: toolModel
+                        Item {
+                            required property string name
+                            required property string value
+                            required property int index
+                            width: win.scaledSize(28)
+                            height: toolRow.height
+                            ToolGlyph {
+                                anchors.centerIn: parent
+                                glyph: name
+                                ink: toolRow.currentIndex === index ? win.accentColor : win.mutedColor
+                                onClicked: {
+                                    toolRow.currentIndex = index;
+                                    canvas.tool = value;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 1
+                    height: 18
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: win.darkMode ? "#444" : "#d5cfc2"
+                }
+
+                Row {
+                    id: colorRow
+                    height: parent.height
+                    spacing: 2
+                    property int currentIndex: 0
+                    Repeater {
+                        model: colorModel
+                        Item {
+                            required property string name
+                            required property int index
+                            width: win.scaledSize(28)
+                            height: colorRow.height
+                            Rectangle {
+                                width: 16
+                                height: 16
+                                radius: 8
+                                anchors.centerIn: parent
+                                color: win.resolvedInk(name)
+                                border.color: colorRow.currentIndex === index ? win.textColor : (win.darkMode ? "#666" : "#ccc")
+                                border.width: colorRow.currentIndex === index ? 2 : 1
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    colorRow.currentIndex = index;
+                                    canvas.colorId = name;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 1
+                    height: 18
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: win.darkMode ? "#444" : "#d5cfc2"
+                }
+
+                Row {
+                    id: widthRow
+                    height: parent.height
+                    spacing: 2
+                    property int currentIndex: 1
+                    Repeater {
+                        model: widthModel
+                        Item {
+                            required property real value
+                            required property int index
+                            width: win.scaledSize(28)
+                            height: widthRow.height
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: Math.max(5, value * 2.4)
+                                height: Math.max(5, value * 2.4)
+                                radius: width / 2
+                                color: widthRow.currentIndex === index ? win.resolvedInk("ink") : win.mutedColor
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    widthRow.currentIndex = index;
+                                    canvas.inkWidth = value;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Label {
+            id: statusLabel
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: 12
+            anchors.bottomMargin: 10
+            text: backend.status
+            color: win.mutedColor
+            opacity: 0
+            font.family: "iA Writer Quattro S"
+            font.pixelSize: win.scaledSize(11)
+            Behavior on opacity { NumberAnimation { duration: 280 } }
+        }
+
+        Timer {
+            id: statusHide
+            interval: 1400
+            onTriggered: statusLabel.opacity = 0
+        }
+
+        Connections {
+            target: backend
+            function onStatusChanged() {
+                if (backend.status.length === 0)
+                    return;
+                statusLabel.opacity = 0.75;
+                statusHide.restart();
+            }
+        }
+
+        Rectangle {
+            visible: win.compact && win.sidebarOpen
+            anchors.fill: parent
+            anchors.leftMargin: win.scaledSize(280)
+            z: 35
+            color: "#66000000"
+            MouseArea {
+                anchors.fill: parent
+                onClicked: win.sidebarOpen = false
+            }
+        }
 
         Rectangle {
             id: sidebar
-            Layout.preferredWidth: win.sidebarOpen ? win.scaledSize(280) : 0
-            Layout.fillHeight: true
+            width: win.scaledSize(280)
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
             color: win.sidebarColor
+            visible: win.sidebarOpen
+            z: win.compact ? 40 : 10
             clip: true
-            visible: width > 0
 
             ColumnLayout {
                 anchors.fill: parent
@@ -194,183 +457,6 @@ ApplicationWindow {
                 }
             }
         }
-
-        Rectangle {
-            width: 1
-            Layout.fillHeight: true
-            color: win.darkMode ? "#1f1f1f" : "#ddd8cc"
-            visible: win.sidebarOpen
-        }
-
-        Item {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-
-            InkCanvas {
-                id: canvas
-                anchors.fill: parent
-                document: backend.document
-                paperColor: backend.paperColor
-                gridColor: backend.gridColor
-                darkMode: win.darkMode
-                inkColor: colorModel.get(colorRow.currentIndex).value
-                inkWidth: widthModel.get(widthRow.currentIndex).value
-                tool: toolModel.get(toolRow.currentIndex).value
-            }
-
-            TextInput {
-                id: titleField
-                anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.topMargin: win.scaledSize(18)
-                anchors.leftMargin: win.scaledSize(win.compact ? 52 : 28)
-                anchors.rightMargin: win.scaledSize(28)
-                text: backend.document ? backend.document.title : ""
-                color: win.textColor
-                font.family: "iA Writer Quattro S"
-                font.pixelSize: win.scaledSize(28)
-                selectByMouse: true
-                onTextChanged: {
-                    if (backend.document && backend.document.title !== text)
-                        backend.document.title = text;
-                }
-            }
-
-            Text {
-                anchors.fill: titleField
-                text: "Title"
-                color: win.mutedColor
-                font: titleField.font
-                visible: titleField.text.length === 0 && !titleField.activeFocus
-            }
-
-            Rectangle {
-                id: toolPill
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: win.scaledSize(18)
-                height: win.scaledSize(48)
-                width: toolRow.width + colorRow.width + widthRow.width + win.scaledSize(52)
-                radius: height / 2
-                color: win.darkMode ? "#cc1a1a1a" : "#e6fffdf8"
-                border.color: win.darkMode ? "#333333" : "#ddd6c8"
-                z: 20
-
-                Row {
-                    id: pillRow
-                    anchors.centerIn: parent
-                    spacing: win.scaledSize(10)
-
-                    Row {
-                        id: toolRow
-                        spacing: 4
-                        property int currentIndex: 0
-                        Repeater {
-                            model: toolModel
-                            ToolGlyph {
-                                required property string name
-                                required property string value
-                                required property int index
-                                glyph: name
-                                ink: toolRow.currentIndex === index ? win.accentColor : win.mutedColor
-                                onClicked: {
-                                    toolRow.currentIndex = index;
-                                    canvas.tool = value;
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle { width: 1; height: 22; color: win.darkMode ? "#444" : "#d5cfc2"; anchors.verticalCenter: parent.verticalCenter }
-
-                    Row {
-                        id: colorRow
-                        spacing: 8
-                        property int currentIndex: 0
-                        Repeater {
-                            model: colorModel
-                            Rectangle {
-                                required property color value
-                                required property int index
-                                width: 18
-                                height: 18
-                                radius: 9
-                                color: value
-                                border.color: colorRow.currentIndex === index ? win.textColor : (win.darkMode ? "#666" : "#ccc")
-                                border.width: colorRow.currentIndex === index ? 2 : 1
-                                MouseArea {
-                                    anchors.fill: parent
-                                    anchors.margins: -6
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        colorRow.currentIndex = index;
-                                        canvas.inkColor = value;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle { width: 1; height: 22; color: win.darkMode ? "#444" : "#d5cfc2"; anchors.verticalCenter: parent.verticalCenter }
-
-                    Row {
-                        id: widthRow
-                        spacing: 10
-                        property int currentIndex: 1
-                        Repeater {
-                            model: widthModel
-                            Rectangle {
-                                required property real value
-                                required property int index
-                                width: 18
-                                height: 18
-                                color: "transparent"
-                                Rectangle {
-                                    anchors.centerIn: parent
-                                    width: Math.max(4, value * 2.2)
-                                    height: Math.max(4, value * 2.2)
-                                    radius: width / 2
-                                    color: widthRow.currentIndex === index ? win.textColor : win.mutedColor
-                                }
-                                MouseArea {
-                                    anchors.fill: parent
-                                    anchors.margins: -6
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        widthRow.currentIndex = index;
-                                        canvas.inkWidth = value;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            ToolGlyph {
-                visible: win.compact
-                glyph: "menu"
-                ink: win.mutedColor
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.margins: win.scaledSize(14)
-                z: 21
-                onClicked: win.sidebarOpen = !win.sidebarOpen
-            }
-
-            Label {
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                anchors.rightMargin: 12
-                anchors.bottomMargin: 10
-                text: backend.status
-                color: win.mutedColor
-                opacity: 0.7
-                font.family: "iA Writer Quattro S"
-                font.pixelSize: win.scaledSize(11)
-            }
-        }
     }
 
     ListModel {
@@ -383,10 +469,10 @@ ApplicationWindow {
 
     ListModel {
         id: colorModel
-        ListElement { value: "#222324" }
-        ListElement { value: "#2077b2" }
-        ListElement { value: "#b42318" }
-        ListElement { value: "#6b7280" }
+        ListElement { name: "ink" }
+        ListElement { name: "blue" }
+        ListElement { name: "red" }
+        ListElement { name: "gray" }
     }
 
     ListModel {
@@ -396,18 +482,6 @@ ApplicationWindow {
         ListElement { value: 4.6 }
     }
 
-    Connections {
-        target: backend
-        function onDarkModeChanged() {
-            colorModel.setProperty(0, "value", win.darkMode ? "#eeeeee" : "#222324");
-            if (colorRow.currentIndex === 0)
-                canvas.inkColor = win.darkMode ? "#eeeeee" : "#222324";
-        }
-        function onThemeColorsChanged() {
-            colorModel.setProperty(1, "value", win.accentColor);
-        }
-    }
-
     Dialog {
         id: shortcutsDialog
         modal: true
@@ -415,7 +489,7 @@ ApplicationWindow {
         standardButtons: Dialog.Close
         anchors.centerIn: parent
         contentItem: Label {
-            text: "Pen draws. Finger pans. Wheel pans.\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+Z  Undo\nDelete  Delete selection\nF11  Fullscreen"
+            text: "Pen draws. Finger pans. Wheel pans.\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+Z  Undo\nDelete  Delete selection\nF11  Fullscreen\nNotes  (narrow window) opens the note list"
             lineHeight: 1.45
         }
     }
@@ -469,11 +543,6 @@ ApplicationWindow {
                 } else if (g.glyph === "trash") {
                     c.moveTo(9, 10); c.lineTo(19, 10); c.lineTo(18, 21); c.lineTo(10, 21); c.closePath();
                     c.moveTo(11, 8); c.lineTo(17, 8);
-                    c.stroke();
-                } else if (g.glyph === "menu") {
-                    c.moveTo(7, 10); c.lineTo(21, 10);
-                    c.moveTo(7, 14); c.lineTo(21, 14);
-                    c.moveTo(7, 18); c.lineTo(21, 18);
                     c.stroke();
                 }
             }

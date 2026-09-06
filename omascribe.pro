@@ -8,6 +8,7 @@ HEADERS += \
     src/backend.h \
     src/document.h \
     src/inkcanvas.h \
+    src/palette.h \
     src/store.h \
     src/systemtheme.h
 

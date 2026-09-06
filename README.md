@@ -12,6 +12,8 @@ C++), same quiet chrome, same follow-the-desktop light and dark.
 - Fineliner with pressure. Finger pans. Wheel pans. Palm is ignored while the pen is down.
 - Eraser removes whole strokes. Lasso selects and moves. Ruler snaps a stroke to 15 degree lines.
 - Notes live as `.omascribe` JSON under `~/.local/share/omascribe/notes/`. Autosave.
+- Inks are named (`ink`, `blue`, `red`, `gray`) and resolved against the paper, so a theme
+  change never hides a stroke. `ink` is always the contrasting writing colour.
 - Undo / redo. Title in the page. Note list on the left, like Apple Notes.
 
 ## Why C++ and Qt, not Rust
