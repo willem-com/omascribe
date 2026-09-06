@@ -7,7 +7,7 @@ Bench root: `~/bench/2026-09-06-omascribe/`
 - `~/.local/bin/omascribe` (symlink or copy of `build/omascribe`)
 - `~/.local/share/applications/omascribe.desktop`
 - `~/.local/share/icons/hicolor/scalable/apps/omascribe.svg`
-- `~/.local/share/omascribe/` (notes)
+- `~/.local/share/omascribe/` (notes plus `current.json` / `current.png` / `current.svg` / `current.omascribe`)
 - `~/.local/share/willem.com/omascribe/` (first-run notes, before the path settled)
 - `~/.config/omascribe/` or `~/.config/willem.com/omascribe.conf` (window geometry)
 
@@ -28,4 +28,7 @@ rm -rf ~/.config/willem.com
 
 ## Packages
 
-None extra. Uses `qt6-base` and `qt6-declarative` already on the machine.
+None extra installed for this job. Uses `qt6-base`, `qt6-declarative`, `qt6-svg`,
+`qt6-5compat` already on the machine.
+
+Do not run this teardown for a pause. The bench and the install stay.
