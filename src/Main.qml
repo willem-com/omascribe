@@ -244,7 +244,7 @@ ApplicationWindow {
             anchors.bottom: parent.bottom
             anchors.bottomMargin: win.scaledSize(18)
             height: win.scaledSize(48)
-            width: toolRow.width + colorRow.width + widthRow.width + win.scaledSize(56)
+            width: toolRow.width + historyRow.width + colorRow.width + widthRow.width + win.scaledSize(68)
             radius: height / 2
             color: win.darkMode ? "#cc1a1a1a" : "#e6fffdf8"
             border.color: win.darkMode ? "#333333" : "#ddd6c8"
@@ -280,6 +280,41 @@ ApplicationWindow {
                                     canvas.tool = value;
                                 }
                             }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 1
+                    height: 18
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: win.darkMode ? "#444" : "#d5cfc2"
+                }
+
+                Row {
+                    id: historyRow
+                    height: parent.height
+                    spacing: 2
+                    Item {
+                        width: win.scaledSize(28)
+                        height: historyRow.height
+                        ToolGlyph {
+                            anchors.centerIn: parent
+                            glyph: "undo"
+                            tip: "Undo (Ctrl+Z, two-finger tap)"
+                            ink: (backend.document && backend.document.canUndo) ? win.textColor : win.mutedColor
+                            onClicked: if (backend.document) backend.document.undo()
+                        }
+                    }
+                    Item {
+                        width: win.scaledSize(28)
+                        height: historyRow.height
+                        ToolGlyph {
+                            anchors.centerIn: parent
+                            glyph: "redo"
+                            tip: "Redo (Ctrl+Shift+Z, three-finger tap)"
+                            ink: (backend.document && backend.document.canRedo) ? win.textColor : win.mutedColor
+                            onClicked: if (backend.document) backend.document.redo()
                         }
                     }
                 }
@@ -534,7 +569,7 @@ ApplicationWindow {
         standardButtons: Dialog.Close
         anchors.centerIn: parent
         contentItem: Label {
-            text: "Pen draws. Finger pans. Wheel pans.\nP  Pen\nE  Eraser (tilted block in the toolbar)\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nDelete  Delete selection\nF11  Fullscreen\nNotes  (narrow window) opens the note list"
+            text: "Pen draws. Finger pans. Wheel pans.\nTwo-finger tap  Undo\nThree-finger tap  Redo\nP  Pen\nE  Eraser (tilted block in the toolbar)\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nDelete  Delete selection\nF11  Fullscreen\nNotes  (narrow window) opens the note list"
             lineHeight: 1.45
         }
     }
@@ -589,6 +624,18 @@ ApplicationWindow {
                     c.moveTo(10, 17); c.lineTo(8, 14);
                     c.moveTo(14, 14); c.lineTo(12, 11);
                     c.moveTo(18, 11); c.lineTo(16, 8);
+                    c.stroke();
+                } else if (g.glyph === "undo") {
+                    c.arc(15, 16, 7, -0.2, 3.4, false);
+                    c.stroke();
+                    c.beginPath();
+                    c.moveTo(7, 8); c.lineTo(7, 14); c.lineTo(13, 14);
+                    c.stroke();
+                } else if (g.glyph === "redo") {
+                    c.arc(13, 16, 7, 3.34, 6.48, false);
+                    c.stroke();
+                    c.beginPath();
+                    c.moveTo(21, 8); c.lineTo(21, 14); c.lineTo(15, 14);
                     c.stroke();
                 } else if (g.glyph === "plus") {
                     c.moveTo(14, 7); c.lineTo(14, 21);

@@ -45,6 +45,12 @@ static int runSelfTest()
         && round->strokes().at(0).colorId == QStringLiteral("ink")
         && json.value(QStringLiteral("format")).toString() == QStringLiteral("omascribe");
 
+    ok = ok && doc->canUndo();
+    doc->undo();
+    ok = ok && doc->strokeCount() == 0 && doc->canRedo();
+    doc->redo();
+    ok = ok && doc->strokeCount() == 1;
+
     QTemporaryDir tmp;
     const QString pdfPath = tmp.filePath(QStringLiteral("note.pdf"));
     const QString svgPath = tmp.filePath(QStringLiteral("note.svg"));

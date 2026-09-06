@@ -37,7 +37,9 @@ Needs `qt6-base`, `qt6-declarative`, `xdg-desktop-portal`. `qmake6` and `g++` do
 
 - Pen draws. Finger or two-finger / wheel pans. Middle-mouse pans at a desk.
 - `P` pen, `E` eraser, `V` select, `L` ruler
-- `Ctrl+N` new note, `Ctrl+E` export PDF or SVG, `Ctrl+Z` undo, `Delete` deletes a selection, `F11` fullscreen
+- `Ctrl+N` new note, `Ctrl+E` export PDF or SVG, `Ctrl+Z` undo, `Ctrl+Shift+Z` redo
+- Two-finger tap undoes, three-finger tap redoes
+- `Delete` deletes a selection, `F11` fullscreen
 
 The working file stays `.omascribe` JSON on this machine. Export writes a shareable
 vector PDF (A4 width, page as tall as the ink) or SVG: white paper, dark ink, never

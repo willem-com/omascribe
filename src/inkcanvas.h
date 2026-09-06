@@ -128,6 +128,10 @@ private:
     QPointF m_hoverDoc;
     bool m_hovering = false;
     QElapsedTimer m_clock;
+    int m_touchMaxFingers = 0;
+    bool m_touchMoved = false;
+    QPointF m_touchCentroid;
+    QElapsedTimer m_touchClock;
     QImage m_cache;
     qreal m_cacheViewY = -1;
     qreal m_cacheDpr = 0;

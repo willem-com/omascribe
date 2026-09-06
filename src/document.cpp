@@ -407,8 +407,10 @@ void Document::redo()
     case EditKind::Remove:
         for (int i = m_strokes.size() - 1; i >= 0; --i) {
             for (const Stroke &s : e.strokes) {
-                if (m_strokes[i].id == s.id)
+                if (m_strokes[i].id == s.id) {
                     m_strokes.removeAt(i);
+                    break;
+                }
             }
         }
         break;

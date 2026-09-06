@@ -35,6 +35,7 @@ InkCanvas::InkCanvas(QQuickItem *parent)
 {
     setAcceptedMouseButtons(Qt::LeftButton | Qt::MiddleButton);
     setAcceptTouchEvents(true);
+    setKeepTouchGrab(true);
     setAcceptHoverEvents(true);
     setAntialiasing(true);
     setOpaquePainting(true);
@@ -284,21 +285,81 @@ void InkCanvas::wheelEvent(QWheelEvent *event)
 
 void InkCanvas::touchEvent(QTouchEvent *event)
 {
-    if (m_penDown) {
-        event->accept();
-        return;
-    }
-    if (event->points().isEmpty())
-        return;
-    const QEventPoint &pt = event->points().first();
-    if (event->type() == QEvent::TouchBegin) {
-        pointerDown(pt.position(), 0.8f, Pointer::Finger, false);
-    } else if (event->type() == QEvent::TouchUpdate) {
-        pointerMove(pt.position(), 0.8f, Pointer::Finger);
-    } else {
-        pointerUp(pt.position(), Pointer::Finger);
-    }
     event->accept();
+    if (m_penDown)
+        return;
+
+    int down = 0;
+    qreal travel = 0;
+    QPointF centroid;
+    for (const QEventPoint &pt : event->points()) {
+        travel = std::max(travel, QLineF(pt.pressPosition(), pt.position()).length());
+        if (pt.state() == QEventPoint::Released)
+            continue;
+        centroid += pt.position();
+        ++down;
+    }
+    if (down > 0)
+        centroid /= down;
+    if (travel > 32)
+        m_touchMoved = true;
+
+    if (event->type() == QEvent::TouchBegin) {
+        m_touchMaxFingers = std::max(1, down);
+        m_touchMoved = travel > 32;
+        m_touchCentroid = centroid;
+        m_touchClock.restart();
+        if (down == 1)
+            pointerDown(event->points().first().position(), 0.8f, Pointer::Finger, false);
+        return;
+    }
+
+    if (event->type() == QEvent::TouchCancel) {
+        if (m_panning)
+            pointerUp(m_lastLocal, Pointer::Finger);
+        m_touchMaxFingers = 0;
+        m_touchMoved = false;
+        m_panning = false;
+        return;
+    }
+
+    m_touchMaxFingers = std::max(m_touchMaxFingers, down);
+
+    if (event->type() == QEvent::TouchUpdate) {
+        if (m_touchMaxFingers >= 2 && m_panning) {
+            m_panning = false;
+            m_activePointer = Pointer::None;
+        }
+        if (down >= 2) {
+            if (!m_touchCentroid.isNull() && m_touchMoved)
+                setViewY(m_viewY - (centroid.y() - m_touchCentroid.y()));
+            m_touchCentroid = centroid;
+            return;
+        }
+        if (down == 1 && m_touchMaxFingers == 1)
+            pointerMove(event->points().first().position(), 0.8f, Pointer::Finger);
+        return;
+    }
+
+    // TouchEnd: last finger lifted. Two-finger tap = undo, three-finger tap = redo.
+    if (m_touchMaxFingers >= 2 && !m_touchMoved && m_touchClock.isValid()
+        && m_touchClock.elapsed() < 500 && m_document) {
+        if (m_touchMaxFingers == 2)
+            m_document->undo();
+        else
+            m_document->redo();
+    } else if (m_touchMaxFingers <= 1) {
+        const QPointF pos = event->points().isEmpty()
+            ? m_lastLocal
+            : event->points().first().position();
+        pointerUp(pos, Pointer::Finger);
+    } else {
+        m_panning = false;
+        m_activePointer = Pointer::None;
+    }
+    m_touchMaxFingers = 0;
+    m_touchMoved = false;
+    m_touchCentroid = QPointF();
 }
 
 void InkCanvas::hoverMoveEvent(QHoverEvent *event)
