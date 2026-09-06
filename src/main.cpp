@@ -1,3 +1,4 @@
+#include <QFile>
 #include <QFont>
 #include <QGuiApplication>
 #include <QIcon>
@@ -7,11 +8,13 @@
 #include <QQmlContext>
 #include <QQmlError>
 #include <QQuickStyle>
+#include <QTemporaryDir>
 #include <QUrl>
 #include <cstdio>
 
 #include "backend.h"
 #include "document.h"
+#include "exporter.h"
 #include "inkcanvas.h"
 #include "systemtheme.h"
 
@@ -34,13 +37,24 @@ static int runSelfTest()
     doc->addStroke(s);
     const QJsonObject json = doc->toJson();
     Document *round = Document::fromJson(json);
-    const bool ok = round
+    bool ok = round
         && round->strokeCount() == 1
         && round->title() == QStringLiteral("Test note")
         && qFuzzyCompare(round->strokes().at(0).points.at(1).x, 14.5f)
         && round->strokes().at(0).hits(QPointF(14.5, 28.25), 2.f)
         && round->strokes().at(0).colorId == QStringLiteral("ink")
         && json.value(QStringLiteral("format")).toString() == QStringLiteral("omascribe");
+
+    QTemporaryDir tmp;
+    const QString pdfPath = tmp.filePath(QStringLiteral("note.pdf"));
+    const QString svgPath = tmp.filePath(QStringLiteral("note.svg"));
+    ok = ok && exportNotePdf(doc, pdfPath) && exportNoteSvg(doc, svgPath);
+    QFile pdf(pdfPath);
+    QFile svg(svgPath);
+    ok = ok && pdf.open(QIODevice::ReadOnly) && svg.open(QIODevice::ReadOnly)
+        && pdf.read(4) == QByteArray("%PDF")
+        && svg.readAll().contains("<svg");
+
     delete round;
     delete doc;
     if (!ok) {
@@ -53,8 +67,32 @@ static int runSelfTest()
 
 int main(int argc, char *argv[])
 {
-    if (argc > 1 && QByteArray(argv[1]) == QByteArrayLiteral("--self-test"))
+    if (argc > 1 && QByteArray(argv[1]) == QByteArrayLiteral("--self-test")) {
+        QGuiApplication app(argc, argv);
         return runSelfTest();
+    }
+
+    if (argc >= 4 && (QByteArray(argv[1]) == QByteArrayLiteral("--export-pdf")
+                      || QByteArray(argv[1]) == QByteArrayLiteral("--export-svg"))) {
+        QGuiApplication app(argc, argv);
+        QFile file(QString::fromLocal8Bit(argv[2]));
+        if (!file.open(QIODevice::ReadOnly)) {
+            std::fprintf(stderr, "could not read %s\n", argv[2]);
+            return 1;
+        }
+        const QJsonDocument json = QJsonDocument::fromJson(file.readAll());
+        Document *doc = Document::fromJson(json.object());
+        const QString out = QString::fromLocal8Bit(argv[3]);
+        const bool ok = QByteArray(argv[1]) == QByteArrayLiteral("--export-svg")
+            ? exportNoteSvg(doc, out)
+            : exportNotePdf(doc, out);
+        delete doc;
+        if (!ok) {
+            std::fprintf(stderr, "export failed\n");
+            return 1;
+        }
+        return 0;
+    }
 
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("omascribe"));

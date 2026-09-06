@@ -1,5 +1,6 @@
 #include "backend.h"
 #include "document.h"
+#include "exporter.h"
 #include "store.h"
 
 #include <QDir>
@@ -11,6 +12,7 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTextStream>
+#include <QUrl>
 
 namespace {
 QFileSystemWatcher *themeWatcher()
@@ -132,6 +134,28 @@ void Backend::saveNow()
         m_notes->upsert(m_document);
         setStatus(QStringLiteral("Saved"));
     }
+}
+
+void Backend::exportNote(const QUrl &url)
+{
+    if (!m_document)
+        return;
+    QString path = url.toLocalFile();
+    if (path.isEmpty())
+        return;
+    const bool svg = path.endsWith(QStringLiteral(".svg"), Qt::CaseInsensitive);
+    if (!svg && !path.endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive))
+        path += QStringLiteral(".pdf");
+    const bool ok = svg ? exportNoteSvg(m_document, path) : exportNotePdf(m_document, path);
+    setStatus(ok ? QStringLiteral("Exported") : QStringLiteral("Export failed"));
+}
+
+QUrl Backend::suggestedExportUrl() const
+{
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    QDir().mkpath(dir);
+    const QString name = suggestedExportName(m_document) + QStringLiteral(".pdf");
+    return QUrl::fromLocalFile(dir + QLatin1Char('/') + name);
 }
 
 QVariantMap Backend::windowGeometry() const

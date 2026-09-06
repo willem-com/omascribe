@@ -7,6 +7,7 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
+#include <QUrl>
 #include <QVariantMap>
 
 class Backend : public QObject {
@@ -49,6 +50,8 @@ public:
     Q_INVOKABLE void openId(const QString &id);
     Q_INVOKABLE void deleteCurrent();
     Q_INVOKABLE void saveNow();
+    Q_INVOKABLE void exportNote(const QUrl &url);
+    Q_INVOKABLE QUrl suggestedExportUrl() const;
     Q_INVOKABLE QVariantMap windowGeometry() const;
     Q_INVOKABLE void saveWindowGeometry(int x, int y, int width, int height, bool maximized);
 

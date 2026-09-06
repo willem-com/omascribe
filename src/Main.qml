@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
+import QtQuick.Dialogs as Dialogs
 import QtQuick.Layouts
 import QtQuick.Window
 import Omascribe
@@ -108,7 +109,22 @@ ApplicationWindow {
     Shortcut { sequence: "V"; context: Qt.WindowShortcut; onActivated: canvas.tool = "select" }
     Shortcut { sequence: "L"; context: Qt.WindowShortcut; onActivated: canvas.tool = "ruler" }
     Shortcut { sequences: ["Meta+F", "F11"]; context: Qt.ApplicationShortcut; onActivated: toggleFullScreen() }
+    Shortcut { sequence: "Ctrl+E"; context: Qt.ApplicationShortcut; onActivated: win.openExport() }
     Shortcut { sequence: "Ctrl+?"; context: Qt.ApplicationShortcut; onActivated: shortcutsDialog.open() }
+
+    function openExport() {
+        exportDialog.selectedFile = backend.suggestedExportUrl();
+        exportDialog.open();
+    }
+
+    Dialogs.FileDialog {
+        id: exportDialog
+        title: "Export note"
+        fileMode: Dialogs.FileDialog.SaveFile
+        defaultSuffix: "pdf"
+        nameFilters: ["PDF (*.pdf)", "SVG (*.svg)"]
+        onAccepted: backend.exportNote(selectedFile)
+    }
 
     Item {
         anchors.fill: parent
@@ -137,7 +153,7 @@ ApplicationWindow {
             anchors.right: parent.right
             anchors.topMargin: win.scaledSize(18)
             anchors.leftMargin: win.scaledSize(win.compact ? 88 : 28)
-            anchors.rightMargin: win.scaledSize(28)
+            anchors.rightMargin: win.scaledSize(100)
             text: backend.document ? backend.document.title : ""
             color: win.textColor
             font.family: "iA Writer Quattro S"
@@ -192,6 +208,33 @@ ApplicationWindow {
                 anchors.margins: -8
                 cursorShape: Qt.PointingHandCursor
                 onClicked: win.sidebarOpen = !win.sidebarOpen
+            }
+        }
+
+        Rectangle {
+            id: exportChip
+            z: 21
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: win.scaledSize(12)
+            height: win.scaledSize(32)
+            width: exportChipLabel.width + win.scaledSize(22)
+            radius: height / 2
+            color: win.darkMode ? "#cc1a1a1a" : "#e6fffdf8"
+            border.color: win.darkMode ? "#333333" : "#ddd6c8"
+            Label {
+                id: exportChipLabel
+                anchors.centerIn: parent
+                text: "Export"
+                color: win.textColor
+                font.family: "iA Writer Quattro S"
+                font.pixelSize: win.scaledSize(13)
+            }
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -8
+                cursorShape: Qt.PointingHandCursor
+                onClicked: win.openExport()
             }
         }
 
@@ -489,7 +532,7 @@ ApplicationWindow {
         standardButtons: Dialog.Close
         anchors.centerIn: parent
         contentItem: Label {
-            text: "Pen draws. Finger pans. Wheel pans.\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+Z  Undo\nDelete  Delete selection\nF11  Fullscreen\nNotes  (narrow window) opens the note list"
+            text: "Pen draws. Finger pans. Wheel pans.\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nDelete  Delete selection\nF11  Fullscreen\nNotes  (narrow window) opens the note list"
             lineHeight: 1.45
         }
     }
