@@ -374,6 +374,8 @@ bool InkCanvas::event(QEvent *event)
     case QEvent::TabletPress:
     case QEvent::TabletMove:
     case QEvent::TabletRelease:
+    case QEvent::TabletEnterProximity:
+    case QEvent::TabletLeaveProximity:
         handleTablet(static_cast<QTabletEvent *>(event));
         return true;
     default:
@@ -388,25 +390,131 @@ void InkCanvas::geometryChange(const QRectF &newGeometry, const QRectF &oldGeome
     clampView();
 }
 
+void InkCanvas::applyStylusButtons(const QTabletEvent *event)
+{
+    m_hwEraser = event->pointerType() == QPointingDevice::PointerType::Eraser;
+    const Qt::MouseButtons buttons = event->buttons();
+    const bool upper = buttons.testFlag(Qt::RightButton) || event->button() == Qt::RightButton;
+    const bool lower = buttons.testFlag(Qt::MiddleButton) || event->button() == Qt::MiddleButton;
+    if (event->type() == QEvent::TabletPress) {
+        if (upper && !buttons.testFlag(Qt::LeftButton)) {
+            m_upperDown = true;
+            m_upperMoved = false;
+        }
+        if ((lower || m_hwEraser) && !buttons.testFlag(Qt::LeftButton)) {
+            m_lowerDown = true;
+            m_lowerMoved = false;
+        }
+    }
+}
+
+bool InkCanvas::wantErase() const
+{
+    return m_hwEraser || m_lowerDown || m_tool == QStringLiteral("eraser");
+}
+
+void InkCanvas::toggleEraserTool()
+{
+    setTool(m_tool == QStringLiteral("eraser") ? QStringLiteral("pen") : QStringLiteral("eraser"));
+}
+
 void InkCanvas::handleTablet(QTabletEvent *event)
 {
     const QPointF local = mapFromScene(event->scenePosition());
-    const bool eraserTip = event->pointerType() == QPointingDevice::PointerType::Eraser;
+    applyStylusButtons(event);
     float pressure = float(event->pressure());
-    if (event->type() == QEvent::TabletPress) {
-        m_penDown = true;
-        pointerDown(local, pressure, Pointer::Pen, eraserTip);
-    } else if (event->type() == QEvent::TabletMove) {
-        if (event->buttons() == Qt::NoButton) {
-            m_hovering = true;
-            m_hoverDoc = toDoc(local);
-            update();
-        } else {
-            pointerMove(local, pressure, Pointer::Pen);
+    const Qt::MouseButtons buttons = event->buttons();
+    const bool tip = buttons.testFlag(Qt::LeftButton) || event->button() == Qt::LeftButton;
+
+    if (event->type() == QEvent::TabletEnterProximity
+        || event->type() == QEvent::TabletLeaveProximity) {
+        m_hovering = event->type() == QEvent::TabletEnterProximity;
+        m_hoverDoc = toDoc(local);
+        // Framework lower button: tool type flips to eraser without a mouse button.
+        if (event->type() == QEvent::TabletEnterProximity && m_hwEraser && !m_penDown) {
+            m_lowerDown = true;
+            m_lowerMoved = false;
+            m_lastLocal = local;
+            m_clock.restart();
+        } else if (event->type() == QEvent::TabletEnterProximity && !m_hwEraser
+                   && m_lowerDown && !m_penDown && !m_lowerMoved && m_clock.elapsed() < 450) {
+            toggleEraserTool();
+            m_lowerDown = false;
         }
+        if (event->type() == QEvent::TabletLeaveProximity)
+            m_upperDown = false;
+        update();
+        event->accept();
+        return;
+    }
+
+    if (event->type() == QEvent::TabletPress) {
+        // Upper barrel: pan. Framework default is right-click; here it scrolls the page.
+        if (m_upperDown && !tip) {
+            m_panning = true;
+            m_lastLocal = local;
+            event->accept();
+            return;
+        }
+        // Lower barrel / eraser tool-type: hover press is a tap candidate.
+        if (m_lowerDown && !tip) {
+            event->accept();
+            return;
+        }
+        m_penDown = true;
+        if (m_upperDown) {
+            m_panning = true;
+            m_lastLocal = local;
+            event->accept();
+            return;
+        }
+        pointerDown(local, pressure, Pointer::Pen, wantErase());
+    } else if (event->type() == QEvent::TabletMove) {
+        m_hovering = true;
+        m_hoverDoc = toDoc(local);
+        if (m_upperDown && (local - m_lastLocal).manhattanLength() > 4)
+            m_upperMoved = true;
+        if (m_lowerDown && (local - m_lastLocal).manhattanLength() > 8)
+            m_lowerMoved = true;
+
+        if (m_panning || m_upperDown) {
+            if (m_liveActive)
+                endStroke();
+            if (!m_panning) {
+                m_panning = true;
+                m_lastLocal = local;
+            }
+            const QPointF delta = local - m_lastLocal;
+            m_lastLocal = local;
+            if (delta.manhattanLength() > 1)
+                m_upperMoved = true;
+            setViewY(m_viewY - delta.y());
+            event->accept();
+            return;
+        }
+
+        if (tip || m_penDown)
+            pointerMove(local, pressure, Pointer::Pen);
+        else
+            update();
     } else if (event->type() == QEvent::TabletRelease) {
+        if (event->button() == Qt::RightButton) {
+            m_panning = false;
+            m_upperDown = false;
+            event->accept();
+            return;
+        }
+        if (event->button() == Qt::MiddleButton || (!tip && m_hwEraser && !m_penDown)) {
+            if (m_lowerDown && !m_lowerMoved && !m_penDown)
+                toggleEraserTool();
+            m_lowerDown = false;
+            m_lowerMoved = false;
+            event->accept();
+            return;
+        }
         pointerUp(local, Pointer::Pen);
         m_penDown = false;
+        m_panning = false;
     }
     event->accept();
 }
@@ -467,7 +575,7 @@ void InkCanvas::pointerMove(QPointF local, float pressure, Pointer pointer)
     m_hoverDoc = doc;
     m_hovering = true;
 
-    if (m_document && m_tool == QStringLiteral("eraser") && !m_liveActive && !m_lassoing
+    if (m_document && wantErase() && !m_liveActive && !m_lassoing
         && !m_movingSelection && (m_activePointer == Pointer::Pen || m_activePointer == Pointer::Mouse)) {
         m_document->eraseAt(doc, kEraserRadius);
         update();
@@ -643,7 +751,7 @@ void InkCanvas::drawCursor(QPainter *painter) const
     if (!m_hovering && !m_liveActive)
         return;
     const QPointF p(m_hoverDoc.x(), m_hoverDoc.y() - m_viewY);
-    if (m_tool == QStringLiteral("eraser")) {
+    if (wantErase()) {
         painter->setPen(QPen(m_darkMode ? QColor(255, 255, 255, 160) : QColor(0, 0, 0, 140), 1.2));
         painter->setBrush(Qt::NoBrush);
         painter->drawEllipse(p, kEraserRadius, kEraserRadius);

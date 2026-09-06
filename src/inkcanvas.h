@@ -87,6 +87,9 @@ private:
     void pointerDown(QPointF local, float pressure, Pointer pointer, bool eraserTip);
     void pointerMove(QPointF local, float pressure, Pointer pointer);
     void pointerUp(QPointF local, Pointer pointer);
+    bool wantErase() const;
+    void toggleEraserTool();
+    void applyStylusButtons(const QTabletEvent *event);
     QPointF toDoc(QPointF local) const;
     void beginStroke(QPointF doc, float pressure);
     void extendStroke(QPointF doc, float pressure);
@@ -129,4 +132,9 @@ private:
     bool m_touchMoved = false;
     QPointF m_touchCentroid;
     QElapsedTimer m_touchClock;
+    bool m_hwEraser = false;
+    bool m_upperDown = false;
+    bool m_upperMoved = false;
+    bool m_lowerDown = false;
+    bool m_lowerMoved = false;
 };

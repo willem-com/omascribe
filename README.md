@@ -45,7 +45,10 @@ The working file stays `.omascribe` JSON on this machine. Export writes a sharea
 vector PDF (A4 width, page as tall as the ink) or SVG: white paper, dark ink, never
 the on-screen theme. The original note is not replaced.
 
-Hardware eraser tip (if the pen has one) erases regardless of the current tool.
+The Framework stylus has two barrel buttons. Firmware defaults, which Omascribe follows:
+
+- **Lower button** (nearest the tip): eraser. Hold it and write to erase. Tap it in hover to toggle the eraser tool so you can keep erasing without holding.
+- **Upper button**: pan the page (hold and move). Firmware calls this right-click; on a note that is the useful equivalent of a hand tool.
 
 ## Live agent readout
 

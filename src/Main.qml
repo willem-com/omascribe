@@ -140,11 +140,17 @@ ApplicationWindow {
             darkMode: win.darkMode
             colorId: colorModel.get(colorRow.currentIndex).name
             inkWidth: widthModel.get(widthRow.currentIndex).value
-            tool: toolModel.get(toolRow.currentIndex).value
             onEngaged: {
                 titleField.focus = false;
                 forceActiveFocus();
             }
+            onToolChanged: {
+                for (var i = 0; i < toolModel.count; ++i) {
+                    if (toolModel.get(i).value === tool)
+                        toolRow.currentIndex = i;
+                }
+            }
+            Component.onCompleted: tool = "pen"
         }
 
         TextInput {
@@ -570,7 +576,7 @@ ApplicationWindow {
         standardButtons: Dialog.Close
         anchors.centerIn: parent
         contentItem: Label {
-            text: "Pen draws. Finger pans. Wheel pans.\nTwo-finger tap  Undo\nThree-finger tap  Redo\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nDelete  Delete selection\nF11  Fullscreen\nNotes  (narrow window) opens the note list"
+            text: "Pen draws. Finger pans. Wheel pans.\nLower stylus button  Eraser (hold, or tap to toggle)\nUpper stylus button  Pan\nTwo-finger tap  Undo\nThree-finger tap  Redo\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nDelete  Delete selection\nF11  Fullscreen"
             lineHeight: 1.45
         }
     }
