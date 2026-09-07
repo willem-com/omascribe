@@ -1,6 +1,7 @@
 #include "store.h"
 #include "document.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -136,12 +137,30 @@ void NoteStore::upsert(const Document *doc)
     emit countChanged();
 }
 
+QString NoteStore::trashDir() const
+{
+    return dataDir() + QStringLiteral("/trash");
+}
+
+// Delete is one tap in the UI, so the file goes to trash/ instead of away.
 void NoteStore::removeById(const QString &id)
 {
     const int i = indexOfId(id);
     if (i < 0)
         return;
-    QFile::remove(m_notes[i].path);
+    const QString path = m_notes[i].path;
+    const QString trash = trashDir();
+    QDir().mkpath(trash);
+    QString dest = trash + QLatin1Char('/') + QFileInfo(path).fileName();
+    if (QFile::exists(dest)) {
+        dest = trash + QLatin1Char('/') + QFileInfo(path).completeBaseName() + QLatin1Char('-')
+            + QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMddHHmmss"))
+            + QStringLiteral(".omascribe");
+    }
+    if (!QFile::rename(path, dest)) {
+        if (QFile::copy(path, dest))
+            QFile::remove(path);
+    }
     beginRemoveRows(QModelIndex(), i, i);
     m_notes.removeAt(i);
     endRemoveRows();

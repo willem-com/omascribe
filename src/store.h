@@ -38,6 +38,7 @@ public:
 
     QString notesDir() const { return m_dir; }
     QString dataDir() const;
+    QString trashDir() const;
     void reload();
     void upsert(const Document *doc);
     void removeById(const QString &id);
