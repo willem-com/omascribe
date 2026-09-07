@@ -15,6 +15,8 @@ C++), same quiet chrome, same follow-the-desktop light and dark.
 - Inks are named (`ink`, `blue`, `red`, `gray`) and resolved against the paper, so a theme
   change never hides a stroke. `ink` is always the contrasting writing colour.
 - Undo / redo. Title in the page. Note list on the left, like Apple Notes.
+- Ink is drawn as scene-graph geometry with 4x MSAA, so scrolling and hovering cost the CPU nothing.
+- Deleting a note moves it to `~/.local/share/omascribe/trash/`.
 
 ## Why C++ and Qt, not Rust
 
@@ -43,7 +45,10 @@ Needs `qt6-base`, `qt6-declarative`, `xdg-desktop-portal`. `qmake6` and `g++` do
 
 The working file stays `.omascribe` JSON on this machine. Export writes a shareable
 vector PDF (A4 width, page as tall as the ink) or SVG: white paper, dark ink, never
-the on-screen theme. The original note is not replaced.
+the on-screen theme. Each stroke is one filled outline path, so a full page is a few
+hundred KB. The original note is not replaced.
+
+`OMASCRIBE_MSAA=0` (or 2, 8) changes the multisampling for a latency comparison.
 
 The Framework stylus has two barrel buttons. Firmware defaults, which Omascribe follows:
 
@@ -66,8 +71,8 @@ the window required):
 omascribe --readout
 ```
 
-prints `current.json`. Autosave refreshes these files. `current.png` is the thing to
-open to *see* the drawing; the `.omascribe` file is the geometry.
+prints `current.json`. The files refresh 5 s after the pen rests (and on note open and quit).
+`current.png` is the thing to open to *see* the drawing; the `.omascribe` file is the geometry.
 
 ## Files
 

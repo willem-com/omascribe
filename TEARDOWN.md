@@ -7,7 +7,7 @@ Bench root: `~/bench/2026-09-06-omascribe/`
 - `~/.local/bin/omascribe` (symlink or copy of `build/omascribe`)
 - `~/.local/share/applications/omascribe.desktop`
 - `~/.local/share/icons/hicolor/scalable/apps/omascribe.svg`
-- `~/.local/share/omascribe/` (notes plus `current.json` / `current.png` / `current.svg` / `current.omascribe`)
+- `~/.local/share/omascribe/` (notes, `trash/`, plus `current.json` / `current.png` / `current.svg` / `current.omascribe`)
 - `~/.local/share/willem.com/omascribe/` (first-run notes, before the path settled)
 - `~/.config/omascribe/` or `~/.config/willem.com/omascribe.conf` (window geometry)
 

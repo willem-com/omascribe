@@ -1,6 +1,6 @@
 # Omascribe working notes
 
-Session: 6 Sep 2026, WillemBG (Framework 12, Omarchy, Gymbal).
+Sessions: 6 Sep 2026 (Grok) and 7 Sep 2026 (Claude), WillemBG (Framework 12, Omarchy, Gymbal).
 Git: `main` at `~/bench/2026-09-06-omascribe/` (local only, no remote).
 This file is the pickup document. README is the user-facing summary.
 
@@ -52,6 +52,7 @@ Not a hardware-bound fixture. Useful on any stylus Linux box. The install lives 
 ~/.local/share/applications/omascribe.desktop
 ~/.local/share/icons/hicolor/scalable/apps/omascribe.svg
 ~/.local/share/omascribe/notes/<uuid>.omascribe
+~/.local/share/omascribe/trash/<uuid>.omascribe   deleted notes (since 7 Sep)
 ~/.local/share/omascribe/current.{json,png,svg,omascribe}
 ~/.config/willem.com/omascribe.conf     window geometry (QSettings)
 ```
@@ -82,13 +83,17 @@ Self-test covers JSON roundtrip, named-colour canonicalization, undo/redo, PDF/S
 | `src/backend.*` | note list, autosave, theme colours, export, readout |
 | `src/store.*` | `NoteStore` scans `notes/*.omascribe` |
 | `src/document.*` | strokes, undo stack, JSON |
-| `src/ink.*` | variable-width ribbon paint, stroke bounds |
-| `src/inkcanvas.*` | tablet/touch/mouse, tools, pan, cursor |
+| `src/ink.*` | stroke geometry: ribbon (paired edge points), outline path for export, triangle list for the GPU |
+| `src/inkcanvas.*` | tablet/touch/mouse, tools, pan, cursor; scene-graph nodes in `updatePaintNode` |
 | `src/palette.h` | named inks for screen vs print |
 | `src/exporter.*` | PDF, SVG, PNG, `writeAgentReadout` |
 | `src/Main.qml` | Apple Notes-ish chrome, tool pill, Notes/Export chips |
 
-InkCanvas is a `QQuickPaintedItem`. Committed strokes and the live stroke are painted every frame. A bitmap cache of committed ink was tried (commit `f449273`) and reverted (`47ef67f`): it made handwriting look sagged and did not help latency. Do not bring it back without a better approach (scene-graph geometry, not a raster cache).
+InkCanvas is a plain `QQuickItem` since 7 Sep 2026. It builds scene-graph nodes in `updatePaintNode`: paper rect in item space, then one `QSGTransformNode` (translate by `-viewY`) holding the dot grid, one `QSGGeometryNode` per committed stroke, the live stroke, lasso, selection box and cursor. Scrolling is a matrix change. A committed stroke's triangles are built once and cached by stroke id (rebuilt when its point count, bounds, colour or the palette change); only the live stroke is rebuilt per frame. Edges are smoothed with 4x MSAA requested on the default `QSurfaceFormat` in `main.cpp` (`OMASCRIBE_MSAA=0|2|4|8` to compare). Hidden nodes sit under a `QSGOpacityNode` at opacity 0 and never carry zero vertices (a degenerate triangle instead).
+
+History: the first version was a `QQuickPaintedItem` that repainted every stroke through QPainter on the CPU on every frame, hover event and scroll. That is why the pen felt better in the performance power profile (Willem's reflection, 6 Sep 23:05). A bitmap cache of committed ink was tried (commit `f449273`) and reverted (`47ef67f`): sagged look, no latency gain.
+
+Stroke geometry (`ink.cpp`): `strokeRibbon` walks the polyline and emits paired left/right edge points at radius `strokeRadius` (width x pressure). Turns sharper than ~20 degrees collapse the inner side onto one point and walk an arc on the outer side, so joins stay round. `strokeOutline` turns that into one closed `QPainterPath` (winding fill, two round caps) for PDF/SVG/PNG; `appendStrokeTriangles` turns it into a triangle list for the scene graph. Same edge, both routes.
 
 ## File format
 
@@ -116,6 +121,8 @@ InkCanvas is a `QQuickPaintedItem`. Committed strokes and the live stroke are pa
 ```
 
 Autosave: 350 ms after last change, `QSaveFile` then rename. Also flush on note switch and quit. `Ctrl+S` is the same write. The "Saved" flash is that disk write, not a mode.
+
+Delete (trash icon) moves the file to `~/.local/share/omascribe/trash/`; nothing is removed. No UI for the trash yet; restore by moving the file back into `notes/`.
 
 Old files stored hex colours (`#222324`, `#eeeeee`). Loader maps near-black/near-white to `ink`, reds to `red`, blues to `blue`, greys to `gray`.
 
@@ -164,7 +171,7 @@ Toolbar icons are stroke SVGs in `src/icons/`, tinted with `ColorOverlay`. Undo/
 
 Export (`Ctrl+E` or Export chip): human share file, PDF default, SVG in the picker. White paper, dark ink. Does not replace the working JSON.
 
-Readout (for agents, refreshed on autosave and on note open):
+Readout (for agents, refreshed 5 s after the pen rests, on note open, and on quit; before 7 Sep it ran 350 ms after every stroke on the GUI thread, which cost a hitch mid-sentence on a full page):
 
 ```
 ~/.local/share/omascribe/current.json
@@ -187,12 +194,14 @@ When Willem says "look at my drawing", read `current.json` then `current.png`. D
 
 ## Decisions that should not be silently reversed
 
-1. Raster cache of committed ink: tried, looked sagged, reverted. Leave it.
+1. Raster cache of committed ink: tried, looked sagged, reverted. Committed ink is scene-graph geometry now; do not go back to a painted item.
 2. PDF/PNG-for-share paper is white, marks are dark, independent of UI theme.
 3. Named inks in the file, resolved at draw time.
 4. Working store is JSON vectors, not a PDF.
 5. Two-finger tap is undo, not pan. Dragging two fingers still pans.
 6. Lower stylus button is eraser (Framework default). Upper is pan, not a desktop right-click menu.
+7. Delete goes to `trash/`, never straight to unlink.
+8. Export is one filled outline path per stroke (the reflection page went from 2.4 MB to well under 300 KB); do not return to a polygon plus circle per segment.
 
 ## Open / next
 
@@ -200,7 +209,9 @@ When Willem says "look at my drawing", read `current.json` then `current.png`. D
 - Three-finger redo vs Hyprland workspace gestures.
 - Title edits currently push one undo step per keystroke.
 - No zoom, no typed text on the page, no layers, no cloud sync.
-- Latency: still bounded by Wayland + panel. Do not reintroduce the bitmap cache. If it comes up again, think scene-graph stroke geometry.
+- Latency: committed ink no longer costs CPU per frame. What remains is Wayland + panel + the live stroke. If it still feels slow in power-saver, compare `OMASCRIBE_MSAA=0` and check the readout timer is not firing mid-write.
+- Trash has no UI and no auto-purge. Add a "Trash" section in the sidebar if it ever fills up.
+- Lasso selects by bounding-box overlap as a fallback; a stroke can be selected without being inside the lasso.
 - No git remote. If this should live on WillemFW, add one and push. Until then the bench copy is the source.
 
 ## Trap list
@@ -209,6 +220,12 @@ When Willem says "look at my drawing", read `current.json` then `current.png`. D
 - QML `tool: toolModel.get(index).value` fought C++ `setTool` from the stylus. Canvas tool is the source of truth; the pill syncs from `onToolChanged`.
 - OrganizationName `willem.com` put QSettings and the first notes under `~/.local/share/willem.com/`. Notes moved; geometry may still be in `~/.config/willem.com/omascribe.conf`.
 - Do not use em-dash in anything that faces Willem.
+
+## Session 7 Sep 2026 (Claude)
+
+Read the reflection PDF (`~/Documents/Reflectie-06-september-2026.pdf`, Willem's own hand): FW12 touch/digitizer not the best but works nicely; latency dropped a lot in performance mode; undo/redo icons sketched on the page and built by the agent ("fantastisch"); freedom to change everything vs the iPad notes app's blue lines. The vector original of that page was deleted after export (delete had no trash yet); the PDF is what survives.
+
+Four changes, one commit each: scene-graph ink + MSAA, readout debounce 5 s, trash folder, single outline path per stroke. Verified: self-test (now also ribbon geometry and trash), test instance on a scratch `XDG_DATA_HOME`, Willem wrote "hello Claude, this is Willem" in it with the pen. That page was copied into the real notes folder.
 
 ## Exit this session
 
