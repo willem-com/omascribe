@@ -4,15 +4,20 @@
 
 #include <QCursor>
 #include <QHoverEvent>
+#include <QMatrix4x4>
 #include <QPixmap>
+#include <QSGFlatColorMaterial>
+#include <QSGGeometry>
+#include <QSGGeometryNode>
+#include <QSGOpacityNode>
+#include <QSGSimpleRectNode>
+#include <QSGTransformNode>
 #include <QInputDevice>
 #include <QLineF>
 #include <QMouseEvent>
-#include <QPainter>
-#include <QPolygonF>
+#include <QSet>
 #include <QPointerEvent>
 #include <QPointingDevice>
-#include <QPainterPath>
 #include <QTabletEvent>
 #include <QTouchEvent>
 #include <QWheelEvent>
@@ -28,15 +33,13 @@ constexpr qreal kAngleStep = 15.0;
 }
 
 InkCanvas::InkCanvas(QQuickItem *parent)
-    : QQuickPaintedItem(parent)
+    : QQuickItem(parent)
 {
+    setFlag(ItemHasContents, true);
     setAcceptedMouseButtons(Qt::LeftButton | Qt::MiddleButton);
     setAcceptTouchEvents(true);
     setKeepTouchGrab(true);
     setAcceptHoverEvents(true);
-    setAntialiasing(true);
-    setOpaquePainting(true);
-    setFillColor(Qt::transparent);
     QPixmap blank(1, 1);
     blank.fill(Qt::transparent);
     setCursor(QCursor(blank, 0, 0));
@@ -51,7 +54,10 @@ void InkCanvas::setDocument(Document *document)
         disconnect(m_document, nullptr, this, nullptr);
     m_document = document;
     if (m_document) {
-        connect(m_document, &Document::contentsChanged, this, [this]() { update(); });
+        connect(m_document, &Document::contentsChanged, this, [this]() {
+            m_strokesDirty = true;
+            update();
+        });
         connect(m_document, &Document::selectionChanged, this, [this]() { update(); });
         connect(m_document, &Document::geometryChanged, this, [this]() {
             emit documentHeightChanged();
@@ -62,6 +68,7 @@ void InkCanvas::setDocument(Document *document)
     m_viewY = 0;
     m_liveActive = false;
     m_lasso.clear();
+    m_strokesDirty = true;
     emit documentChanged();
     emit viewYChanged();
     emit documentHeightChanged();
@@ -121,7 +128,6 @@ void InkCanvas::setPaperColor(const QColor &color)
     if (m_paperColor == color)
         return;
     m_paperColor = color;
-    setFillColor(color);
     emit paperColorChanged();
     update();
 }
@@ -140,32 +146,316 @@ void InkCanvas::setDarkMode(bool dark)
     if (m_darkMode == dark)
         return;
     m_darkMode = dark;
+    ++m_paletteEpoch;
+    m_strokesDirty = true;
     emit darkModeChanged();
     update();
 }
 
-void InkCanvas::paint(QPainter *painter)
+namespace {
+constexpr qreal kGridStep = 28;
+constexpr qreal kGridDot = 1.3;
+constexpr qreal kGridChunk = 1000;
+constexpr int kRingSegments = 28;
+
+// Root of the canvas scene: paper in item space, everything else in document
+// space under one translate node so a scroll is a matrix change, not a repaint.
+struct CanvasNode : public QSGNode {
+    QSGSimpleRectNode *paper = nullptr;
+    QSGTransformNode *xform = nullptr;
+    QSGGeometryNode *grid = nullptr;
+    QSGNode *strokes = nullptr;
+    QSGOpacityNode *liveWrap = nullptr;
+    QSGGeometryNode *live = nullptr;
+    QSGOpacityNode *lassoWrap = nullptr;
+    QSGGeometryNode *lasso = nullptr;
+    QSGOpacityNode *selectionWrap = nullptr;
+    QSGGeometryNode *selection = nullptr;
+    QSGOpacityNode *cursorWrap = nullptr;
+    QSGGeometryNode *cursorDot = nullptr;
+    QSGGeometryNode *cursorRing = nullptr;
+    qreal viewY = -1;
+};
+
+QSGGeometryNode *makeGeometryNode(QSGGeometry::DrawingMode mode, const QColor &color)
 {
-    painter->setRenderHint(QPainter::Antialiasing, true);
-    painter->fillRect(boundingRect(), m_paperColor);
-    painter->save();
-    painter->translate(0, -m_viewY);
-    drawGrid(painter);
-    if (m_document) {
-        const QRectF view(0, m_viewY, width(), height());
-        const QRectF padded = view.adjusted(-40, -40, 40, 40);
-        for (const Stroke &s : m_document->strokes()) {
-            if (!s.bounds.intersects(padded))
-                continue;
-            drawStroke(painter, s);
+    auto *node = new QSGGeometryNode;
+    auto *geometry = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), 0);
+    geometry->setDrawingMode(mode);
+    geometry->setLineWidth(1);
+    node->setGeometry(geometry);
+    node->setFlag(QSGNode::OwnsGeometry);
+    auto *material = new QSGFlatColorMaterial;
+    material->setColor(color);
+    node->setMaterial(material);
+    node->setFlag(QSGNode::OwnsMaterial);
+    return node;
+}
+
+void setNodeColor(QSGGeometryNode *node, const QColor &color)
+{
+    auto *material = static_cast<QSGFlatColorMaterial *>(node->material());
+    if (material->color() == color)
+        return;
+    material->setColor(color);
+    node->markDirty(QSGNode::DirtyMaterial);
+}
+
+// An empty geometry is replaced by one degenerate primitive so the renderer
+// never sees a zero-vertex node.
+void setNodePoints(QSGGeometryNode *node, const QVector<QPointF> &points)
+{
+    QSGGeometry *geometry = node->geometry();
+    const int count = std::max(3, int(points.size()));
+    geometry->allocate(count);
+    QSGGeometry::Point2D *v = geometry->vertexDataAsPoint2D();
+    for (int i = 0; i < count; ++i) {
+        const QPointF p = points.isEmpty() ? QPointF(-10, -10) : points[std::min(i, int(points.size()) - 1)];
+        v[i].set(float(p.x()), float(p.y()));
+    }
+    node->markDirty(QSGNode::DirtyGeometry);
+}
+
+QSGOpacityNode *wrap(QSGGeometryNode *child)
+{
+    auto *node = new QSGOpacityNode;
+    node->appendChildNode(child);
+    node->setOpacity(0);
+    return node;
+}
+
+void ringPoints(QPointF c, qreal r, QVector<QPointF> &out)
+{
+    for (int k = 0; k <= kRingSegments; ++k) {
+        const qreal a = 2 * M_PI * k / kRingSegments;
+        out.append(c + QPointF(std::cos(a) * r, std::sin(a) * r));
+    }
+}
+
+void discTriangles(QPointF c, qreal r, QVector<QPointF> &out)
+{
+    for (int k = 0; k < kRingSegments; ++k) {
+        const qreal a0 = 2 * M_PI * k / kRingSegments;
+        const qreal a1 = 2 * M_PI * (k + 1) / kRingSegments;
+        out.append(c);
+        out.append(c + QPointF(std::cos(a0) * r, std::sin(a0) * r));
+        out.append(c + QPointF(std::cos(a1) * r, std::sin(a1) * r));
+    }
+}
+}
+
+QSGNode *InkCanvas::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
+{
+    auto *root = static_cast<CanvasNode *>(oldNode);
+    if (!root) {
+        // A fresh tree: every cached stroke node went away with the old one.
+        m_strokeNodes.clear();
+        m_nodesDocument = nullptr;
+        m_gridWidth = 0;
+        root = new CanvasNode;
+        root->paper = new QSGSimpleRectNode(QRectF(), m_paperColor);
+        root->appendChildNode(root->paper);
+        root->xform = new QSGTransformNode;
+        root->appendChildNode(root->xform);
+        root->grid = makeGeometryNode(QSGGeometry::DrawTriangles, m_gridColor);
+        root->xform->appendChildNode(root->grid);
+        root->strokes = new QSGNode;
+        root->xform->appendChildNode(root->strokes);
+        root->live = makeGeometryNode(QSGGeometry::DrawTriangles, Qt::black);
+        root->liveWrap = wrap(root->live);
+        root->xform->appendChildNode(root->liveWrap);
+        root->lasso = makeGeometryNode(QSGGeometry::DrawLineStrip, Qt::black);
+        root->lassoWrap = wrap(root->lasso);
+        root->xform->appendChildNode(root->lassoWrap);
+        root->selection = makeGeometryNode(QSGGeometry::DrawLineStrip, Qt::black);
+        root->selectionWrap = wrap(root->selection);
+        root->xform->appendChildNode(root->selectionWrap);
+        root->cursorDot = makeGeometryNode(QSGGeometry::DrawTriangles, Qt::black);
+        root->cursorRing = makeGeometryNode(QSGGeometry::DrawLineStrip, Qt::black);
+        root->cursorWrap = new QSGOpacityNode;
+        root->cursorWrap->appendChildNode(root->cursorDot);
+        root->cursorWrap->appendChildNode(root->cursorRing);
+        root->cursorWrap->setOpacity(0);
+        root->xform->appendChildNode(root->cursorWrap);
+    }
+
+    const QRectF paperRect(0, 0, width(), height());
+    if (root->paper->rect() != paperRect)
+        root->paper->setRect(paperRect);
+    if (root->paper->color() != m_paperColor)
+        root->paper->setColor(m_paperColor);
+
+    if (!qFuzzyCompare(root->viewY, m_viewY)) {
+        QMatrix4x4 m;
+        m.translate(0, float(-m_viewY));
+        root->xform->setMatrix(m);
+        root->viewY = m_viewY;
+    }
+
+    syncGrid(root->grid);
+    syncStrokes(root->strokes);
+
+    // Live stroke: rebuilt while the pen is down, hidden otherwise.
+    if (m_liveActive && !m_live.points.isEmpty()) {
+        QVector<QPointF> tris;
+        appendStrokeTriangles(m_live, tris);
+        setNodePoints(root->live, tris);
+        setNodeColor(root->live, strokePaintColor(m_live));
+        root->liveWrap->setOpacity(1);
+    } else if (root->liveWrap->opacity() > 0) {
+        root->liveWrap->setOpacity(0);
+    }
+
+    if (m_lasso.size() >= 2) {
+        setNodePoints(root->lasso, m_lasso);
+        setNodeColor(root->lasso, m_darkMode ? QColor(220, 220, 220, 180) : QColor(40, 40, 40, 160));
+        root->lassoWrap->setOpacity(1);
+    } else if (root->lassoWrap->opacity() > 0) {
+        root->lassoWrap->setOpacity(0);
+    }
+
+    if (m_document && m_document->selectedCount() > 0) {
+        const QRectF r = m_document->selectionBounds().adjusted(-6, -6, 6, 6);
+        const QVector<QPointF> box{r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft(), r.topLeft()};
+        setNodePoints(root->selection, box);
+        setNodeColor(root->selection, m_darkMode ? QColor(QStringLiteral("#5584aa"))
+                                                 : QColor(QStringLiteral("#2077b2")));
+        root->selectionWrap->setOpacity(1);
+    } else if (root->selectionWrap->opacity() > 0) {
+        root->selectionWrap->setOpacity(0);
+    }
+
+    if (m_hovering || m_liveActive) {
+        syncCursor(root->cursorDot, root->cursorRing);
+        root->cursorWrap->setOpacity(1);
+    } else if (root->cursorWrap->opacity() > 0) {
+        root->cursorWrap->setOpacity(0);
+    }
+
+    return root;
+}
+
+void InkCanvas::syncGrid(QSGGeometryNode *node)
+{
+    const qreal wanted = std::max(documentHeight(), m_viewY + height()) + kGridStep;
+    const qreal bottom = std::ceil(wanted / kGridChunk) * kGridChunk;
+    if (qFuzzyCompare(m_gridWidth, width()) && qFuzzyCompare(m_gridBottom, bottom)
+        && m_gridBuilt == m_gridColor)
+        return;
+    m_gridWidth = width();
+    m_gridBottom = bottom;
+    m_gridBuilt = m_gridColor;
+
+    QVector<QPointF> tris;
+    const int cols = int(std::max(0.0, (width() - kGridStep) / kGridStep)) + 1;
+    const int rows = int(bottom / kGridStep) + 1;
+    tris.reserve(cols * rows * 6);
+    const qreal h = kGridDot / 2;
+    for (int r = 0; r < rows; ++r) {
+        const qreal y = r * kGridStep;
+        for (qreal x = kGridStep; x < width(); x += kGridStep) {
+            tris.append({x - h, y - h});
+            tris.append({x + h, y - h});
+            tris.append({x - h, y + h});
+            tris.append({x + h, y - h});
+            tris.append({x + h, y + h});
+            tris.append({x - h, y + h});
         }
     }
-    if (m_liveActive)
-        drawStroke(painter, m_live);
-    drawLasso(painter);
-    drawSelection(painter);
-    painter->restore();
-    drawCursor(painter);
+    setNodePoints(node, tris);
+    setNodeColor(node, m_gridColor);
+}
+
+void InkCanvas::syncStrokes(QSGNode *parent)
+{
+    if (!m_document) {
+        if (parent->childCount() > 0) {
+            while (QSGNode *child = parent->firstChild()) {
+                parent->removeChildNode(child);
+                delete child;
+            }
+        }
+        m_strokeNodes.clear();
+        m_nodesDocument = nullptr;
+        return;
+    }
+    if (m_nodesDocument != m_document) {
+        while (QSGNode *child = parent->firstChild()) {
+            parent->removeChildNode(child);
+            delete child;
+        }
+        m_strokeNodes.clear();
+        m_nodesDocument = m_document;
+        m_strokesDirty = true;
+    }
+    if (!m_strokesDirty && m_document->strokeCount() == m_strokeNodes.size())
+        return;
+    m_strokesDirty = false;
+
+    const QVector<Stroke> &strokes = m_document->strokes();
+    QSet<QString> alive;
+    alive.reserve(strokes.size());
+    for (const Stroke &s : strokes)
+        alive.insert(s.id);
+
+    // Drop nodes whose stroke is gone.
+    for (auto it = m_strokeNodes.begin(); it != m_strokeNodes.end();) {
+        if (alive.contains(it.key())) {
+            ++it;
+            continue;
+        }
+        parent->removeChildNode(it->node);
+        delete it->node;
+        it = m_strokeNodes.erase(it);
+    }
+
+    // Walk in document order; re-append so z-order follows the document.
+    while (QSGNode *child = parent->firstChild())
+        parent->removeChildNode(child);
+    for (const Stroke &s : strokes) {
+        StrokeNode &entry = m_strokeNodes[s.id];
+        const bool fresh = entry.node == nullptr;
+        const bool stale = fresh || entry.points != s.points.size() || entry.bounds != s.bounds
+            || entry.colorId != s.colorId || entry.epoch != m_paletteEpoch;
+        if (fresh)
+            entry.node = makeGeometryNode(QSGGeometry::DrawTriangles, strokePaintColor(s));
+        if (stale) {
+            QVector<QPointF> tris;
+            appendStrokeTriangles(s, tris);
+            setNodePoints(entry.node, tris);
+            setNodeColor(entry.node, strokePaintColor(s));
+            entry.points = s.points.size();
+            entry.bounds = s.bounds;
+            entry.colorId = s.colorId;
+            entry.epoch = m_paletteEpoch;
+        }
+        parent->appendChildNode(entry.node);
+    }
+}
+
+void InkCanvas::syncCursor(QSGGeometryNode *dot, QSGGeometryNode *ring)
+{
+    QVector<QPointF> dotPts;
+    QVector<QPointF> ringPts;
+    const QPointF p = m_hoverDoc;
+    if (wantErase()) {
+        ringPoints(p, kEraserRadius, ringPts);
+        setNodeColor(ring, m_darkMode ? QColor(255, 255, 255, 160) : QColor(0, 0, 0, 140));
+    } else if (m_tool == QStringLiteral("select")) {
+        ringPoints(p, 5, ringPts);
+        setNodeColor(ring, m_darkMode ? QColor(255, 255, 255, 160) : QColor(0, 0, 0, 140));
+    } else {
+        discTriangles(p, m_inkWidth * 0.5, dotPts);
+        setNodeColor(dot, resolveColor(m_colorId, m_darkMode));
+    }
+    setNodePoints(dot, dotPts);
+    setNodePoints(ring, ringPts);
+}
+
+void InkCanvas::invalidateStrokeNodes()
+{
+    m_strokesDirty = true;
+    update();
 }
 
 void InkCanvas::zoomReset()
@@ -379,13 +669,13 @@ bool InkCanvas::event(QEvent *event)
         handleTablet(static_cast<QTabletEvent *>(event));
         return true;
     default:
-        return QQuickPaintedItem::event(event);
+        return QQuickItem::event(event);
     }
 }
 
 void InkCanvas::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
-    QQuickPaintedItem::geometryChange(newGeometry, oldGeometry);
+    QQuickItem::geometryChange(newGeometry, oldGeometry);
     emit documentHeightChanged();
     clampView();
 }
@@ -536,11 +826,11 @@ void InkCanvas::pointerDown(QPointF local, float pressure, Pointer pointer, bool
         tool = QStringLiteral("eraser");
 
     if (tool == QStringLiteral("eraser")) {
-        if (m_document)
+        if (m_document) {
             m_document->beginErase();
-        if (m_document)
             m_document->eraseAt(m_pressDoc, kEraserRadius);
-        update();
+        }
+        invalidateStrokeNodes();
         return;
     }
 
@@ -578,7 +868,7 @@ void InkCanvas::pointerMove(QPointF local, float pressure, Pointer pointer)
     if (m_document && wantErase() && !m_liveActive && !m_lassoing
         && !m_movingSelection && (m_activePointer == Pointer::Pen || m_activePointer == Pointer::Mouse)) {
         m_document->eraseAt(doc, kEraserRadius);
-        update();
+        invalidateStrokeNodes();
         return;
     }
 
@@ -698,76 +988,6 @@ void InkCanvas::endStroke()
     m_live = Stroke();
     emit drawingChanged();
     update();
-}
-
-void InkCanvas::drawStroke(QPainter *painter, const Stroke &stroke) const
-{
-    paintStroke(painter, stroke, strokePaintColor(stroke));
-}
-
-void InkCanvas::drawGrid(QPainter *painter) const
-{
-    const qreal step = 28;
-    const qreal y0 = std::floor(m_viewY / step) * step;
-    const qreal y1 = m_viewY + height() + step;
-    QPolygonF dots;
-    dots.reserve(int((width() / step) * ((y1 - y0) / step) + 8));
-    for (qreal y = y0; y <= y1; y += step) {
-        for (qreal x = step; x < width(); x += step)
-            dots.append(QPointF(x, y));
-    }
-    painter->setPen(QPen(m_gridColor, 1.1));
-    painter->drawPoints(dots);
-}
-
-void InkCanvas::drawLasso(QPainter *painter) const
-{
-    if (m_lasso.size() < 2)
-        return;
-    QPainterPath path;
-    path.moveTo(m_lasso.first());
-    for (int i = 1; i < m_lasso.size(); ++i)
-        path.lineTo(m_lasso[i]);
-    QPen pen(m_darkMode ? QColor(220, 220, 220, 180) : QColor(40, 40, 40, 160), 1.2, Qt::DashLine);
-    painter->setPen(pen);
-    painter->setBrush(m_darkMode ? QColor(120, 170, 220, 40) : QColor(32, 119, 178, 40));
-    painter->drawPath(path);
-}
-
-void InkCanvas::drawSelection(QPainter *painter) const
-{
-    if (!m_document || m_document->selectedCount() == 0)
-        return;
-    const QRectF r = m_document->selectionBounds().adjusted(-6, -6, 6, 6);
-    QPen pen(m_darkMode ? QColor(QStringLiteral("#5584aa")) : QColor(QStringLiteral("#2077b2")), 1.4,
-             Qt::DashLine);
-    painter->setPen(pen);
-    painter->setBrush(Qt::NoBrush);
-    painter->drawRoundedRect(r, 4, 4);
-}
-
-void InkCanvas::drawCursor(QPainter *painter) const
-{
-    if (!m_hovering && !m_liveActive)
-        return;
-    const QPointF p(m_hoverDoc.x(), m_hoverDoc.y() - m_viewY);
-    if (wantErase()) {
-        painter->setPen(QPen(m_darkMode ? QColor(255, 255, 255, 160) : QColor(0, 0, 0, 140), 1.2));
-        painter->setBrush(Qt::NoBrush);
-        painter->drawEllipse(p, kEraserRadius, kEraserRadius);
-        return;
-    }
-    if (m_tool == QStringLiteral("select")) {
-        painter->setPen(QPen(m_darkMode ? QColor(255, 255, 255, 160) : QColor(0, 0, 0, 140), 1.1));
-        painter->setBrush(Qt::NoBrush);
-        painter->drawEllipse(p, 5, 5);
-        return;
-    }
-    const QColor c = resolveColor(m_colorId, m_darkMode);
-    const qreal r = m_inkWidth * 0.5;
-    painter->setBrush(c);
-    painter->setPen(QPen(m_darkMode ? QColor(0, 0, 0, 90) : QColor(255, 255, 255, 90), 1));
-    painter->drawEllipse(p, r, r);
 }
 
 QColor InkCanvas::strokePaintColor(const Stroke &stroke) const

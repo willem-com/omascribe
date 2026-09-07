@@ -1,5 +1,6 @@
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QFont>
 #include <QGuiApplication>
 #include <QIcon>
@@ -9,6 +10,7 @@
 #include <QQmlContext>
 #include <QQmlError>
 #include <QQuickStyle>
+#include <QSurfaceFormat>
 #include <QTemporaryDir>
 #include <QUrl>
 #include <cstdio>
@@ -16,7 +18,9 @@
 #include "backend.h"
 #include "document.h"
 #include "exporter.h"
+#include "ink.h"
 #include "inkcanvas.h"
+#include "store.h"
 #include "systemtheme.h"
 
 static int runSelfTest()
@@ -46,6 +50,35 @@ static int runSelfTest()
         && round->strokes().at(0).colorId == QStringLiteral("ink")
         && json.value(QStringLiteral("format")).toString() == QStringLiteral("omascribe");
 
+    // Ribbon geometry: one outline per stroke, triangles that stay inside the bounds.
+    {
+        const Stroke &st = doc->strokes().at(0);
+        const QPainterPath outline = strokeOutline(st);
+        QVector<QPointF> tris;
+        appendStrokeTriangles(st, tris);
+        const QRectF pad = st.bounds.adjusted(-1, -1, 1, 1);
+        ok = ok && outline.elementCount() > 8 && pad.contains(outline.boundingRect())
+            && tris.size() >= 12 && tris.size() % 3 == 0;
+        for (const QPointF &v : tris)
+            ok = ok && pad.contains(v);
+
+        Stroke hairpin = st;
+        hairpin.id = QStringLiteral("stroke-2");
+        hairpin.points = {{0.f, 0.f, 0.8f}, {30.f, 0.f, 0.8f}, {0.f, 3.f, 0.8f}};
+        hairpin.recomputeBounds();
+        QVector<QPointF> hp;
+        appendStrokeTriangles(hairpin, hp);
+        ok = ok && !hp.isEmpty() && strokeOutline(hairpin).elementCount() > 8;
+
+        Stroke dot = st;
+        dot.id = QStringLiteral("stroke-3");
+        dot.points = {{5.f, 5.f, 0.5f}};
+        dot.recomputeBounds();
+        QVector<QPointF> dp;
+        appendStrokeTriangles(dot, dp);
+        ok = ok && dp.size() == 16 * 3 && !strokeOutline(dot).isEmpty();
+    }
+
     ok = ok && doc->canUndo();
     doc->undo();
     ok = ok && doc->strokeCount() == 0 && doc->canRedo();
@@ -69,6 +102,27 @@ static int runSelfTest()
             == QStringLiteral("omascribe-readout")
         && preview.read(8).startsWith("\x89PNG");
 
+    // Deleting a note moves it to trash/ instead of removing it.
+    {
+        QTemporaryDir dataHome;
+        qputenv("XDG_DATA_HOME", dataHome.path().toUtf8());
+        NoteStore store;
+        const QString notePath = dataHome.path() + QStringLiteral("/omascribe/notes/")
+            + doc->id() + QStringLiteral(".omascribe");
+        QDir().mkpath(QFileInfo(notePath).absolutePath());
+        QFile noteFile(notePath);
+        ok = ok && noteFile.open(QIODevice::WriteOnly)
+            && noteFile.write(QJsonDocument(doc->toJson()).toJson()) > 0;
+        noteFile.close();
+        store.reload();
+        ok = ok && store.indexOfId(doc->id()) >= 0;
+        store.removeById(doc->id());
+        ok = ok && store.indexOfId(doc->id()) < 0 && !QFile::exists(notePath)
+            && QFile::exists(store.trashDir() + QLatin1Char('/') + doc->id()
+                             + QStringLiteral(".omascribe"));
+        qunsetenv("XDG_DATA_HOME");
+    }
+
     delete round;
     delete doc;
     if (!ok) {
@@ -81,6 +135,18 @@ static int runSelfTest()
 
 int main(int argc, char *argv[])
 {
+    // Ink is drawn as scene-graph triangles; MSAA gives them their smooth edge.
+    // OMASCRIBE_MSAA=0 turns it off (or picks 2/8) for a latency comparison.
+    {
+        bool given = false;
+        int samples = qEnvironmentVariableIntValue("OMASCRIBE_MSAA", &given);
+        if (!given)
+            samples = 4;
+        QSurfaceFormat format = QSurfaceFormat::defaultFormat();
+        format.setSamples(samples > 1 ? samples : 0);
+        QSurfaceFormat::setDefaultFormat(format);
+    }
+
     if (argc > 1 && QByteArray(argv[1]) == QByteArrayLiteral("--self-test")) {
         QGuiApplication app(argc, argv);
         return runSelfTest();

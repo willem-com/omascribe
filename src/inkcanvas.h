@@ -4,13 +4,15 @@
 
 #include <QColor>
 #include <QElapsedTimer>
-#include <QQuickPaintedItem>
+#include <QHash>
+#include <QQuickItem>
 #include <QString>
 #include <QVector>
 
+class QSGGeometryNode;
 class QTabletEvent;
 
-class InkCanvas : public QQuickPaintedItem {
+class InkCanvas : public QQuickItem {
     Q_OBJECT
     Q_PROPERTY(Document *document READ document WRITE setDocument NOTIFY documentChanged)
     Q_PROPERTY(QString tool READ tool WRITE setTool NOTIFY toolChanged)
@@ -51,7 +53,7 @@ public:
     bool darkMode() const { return m_darkMode; }
     void setDarkMode(bool dark);
 
-    void paint(QPainter *painter) override;
+    QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data) override;
 
     enum class Pointer { None, Pen, Mouse, Finger };
 
@@ -94,11 +96,10 @@ private:
     void beginStroke(QPointF doc, float pressure);
     void extendStroke(QPointF doc, float pressure);
     void endStroke();
-    void drawStroke(QPainter *painter, const Stroke &stroke) const;
-    void drawGrid(QPainter *painter) const;
-    void drawLasso(QPainter *painter) const;
-    void drawSelection(QPainter *painter) const;
-    void drawCursor(QPainter *painter) const;
+    void syncStrokes(QSGNode *parent);
+    void syncGrid(QSGGeometryNode *node);
+    void syncCursor(QSGGeometryNode *dot, QSGGeometryNode *ring);
+    void invalidateStrokeNodes();
     void clampView();
     void autoGrowAndFollow(QPointF doc);
     QPointF rulerPoint(QPointF start, QPointF current) const;
@@ -137,4 +138,22 @@ private:
     bool m_upperMoved = false;
     bool m_lowerDown = false;
     bool m_lowerMoved = false;
+
+    // Scene-graph cache: one geometry node per committed stroke, rebuilt only
+    // when that stroke changes. Pointers are owned by the node tree; the map is
+    // cleared whenever the tree is rebuilt.
+    struct StrokeNode {
+        QSGGeometryNode *node = nullptr;
+        QRectF bounds;
+        int points = 0;
+        QString colorId;
+        int epoch = 0;
+    };
+    QHash<QString, StrokeNode> m_strokeNodes;
+    const Document *m_nodesDocument = nullptr;
+    int m_paletteEpoch = 0;
+    bool m_strokesDirty = true;
+    qreal m_gridWidth = 0;
+    qreal m_gridBottom = 0;
+    QColor m_gridBuilt;
 };
