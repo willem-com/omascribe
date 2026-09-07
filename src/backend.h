@@ -69,6 +69,7 @@ private:
     bool loadFromPath(const QString &path);
     bool writeDocument();
     void writeReadout();
+    void scheduleReadout();
     void setStatus(const QString &status);
     void scheduleSave();
     QString defaultNotePath(const QString &id) const;
@@ -86,5 +87,6 @@ private:
     QString m_gridColor;
     QString m_status;
     QTimer m_saveTimer;
+    QTimer m_readoutTimer;
     QTimer m_themeDebounce;
 };

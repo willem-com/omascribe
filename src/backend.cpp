@@ -30,6 +30,13 @@ Backend::Backend(QObject *parent)
     m_saveTimer.setInterval(350);
     connect(&m_saveTimer, &QTimer::timeout, this, &Backend::saveNow);
 
+    // The agent readout (PNG, SVG, JSON) renders the whole page on the GUI
+    // thread. Autosave is 350 ms; the readout waits until the pen has rested
+    // for 5 s, and is flushed on note switch and quit.
+    m_readoutTimer.setSingleShot(true);
+    m_readoutTimer.setInterval(5000);
+    connect(&m_readoutTimer, &QTimer::timeout, this, &Backend::writeReadout);
+
     m_themeDebounce.setSingleShot(true);
     m_themeDebounce.setInterval(80);
     connect(&m_themeDebounce, &QTimer::timeout, this, &Backend::loadOmarchyTheme);
@@ -46,6 +53,10 @@ Backend::Backend(QObject *parent)
 Backend::~Backend()
 {
     saveNow();
+    if (m_readoutTimer.isActive()) {
+        m_readoutTimer.stop();
+        writeReadout();
+    }
 }
 
 void Backend::setDarkMode(bool darkMode)
@@ -69,6 +80,7 @@ void Backend::setTextScale(qreal textScale)
 void Backend::newNote()
 {
     saveNow();
+    m_readoutTimer.stop();
     if (m_document)
         m_document->deleteLater();
     m_document = Document::createNew(this);
@@ -95,6 +107,7 @@ void Backend::openIndex(int index)
         return;
     }
     saveNow();
+    m_readoutTimer.stop();
     if (!loadFromPath(rec.path))
         return;
     m_currentIndex = m_notes->indexOfId(m_document->id());
@@ -114,6 +127,7 @@ void Backend::deleteCurrent()
         return;
     const QString id = m_document->id();
     m_saveTimer.stop();
+    m_readoutTimer.stop();
     m_notes->removeById(id);
     m_document->deleteLater();
     m_document = nullptr;
@@ -121,7 +135,7 @@ void Backend::deleteCurrent()
         openIndex(0);
     else
         newNote();
-    setStatus(QStringLiteral("Deleted"));
+    setStatus(QStringLiteral("Moved to trash"));
 }
 
 void Backend::saveNow()
@@ -133,9 +147,14 @@ void Backend::saveNow()
         return;
     if (writeDocument()) {
         m_notes->upsert(m_document);
-        writeReadout();
+        scheduleReadout();
         setStatus(QStringLiteral("Saved"));
     }
+}
+
+void Backend::scheduleReadout()
+{
+    m_readoutTimer.start();
 }
 
 void Backend::exportNote(const QUrl &url)
