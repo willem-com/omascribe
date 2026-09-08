@@ -27,7 +27,9 @@
 #include <cmath>
 
 namespace {
-constexpr float kMinStep = 0.7f;
+// Keep the pen raw: only a sample that did not move at all is dropped.
+// (Was 0.7 px until 8 Sep 2026; libinput smoothing is off via a quirk too.)
+constexpr float kMinStep = 0.05f;
 constexpr float kEraserRadius = 18.f;
 constexpr qreal kAngleStep = 15.0;
 }

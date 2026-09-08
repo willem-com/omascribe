@@ -221,6 +221,16 @@ When Willem says "look at my drawing", read `current.json` then `current.png`. D
 - OrganizationName `willem.com` put QSettings and the first notes under `~/.local/share/willem.com/`. Notes moved; geometry may still be in `~/.config/willem.com/omascribe.conf`.
 - Do not use em-dash in anything that faces Willem.
 
+## Raw pen (8 Sep 2026)
+
+Willem saw his jaggy handwriting come out "averaged". The app never smoothed:
+libinput does, by default, for every tablet except Wacom AES. Fixed outside
+the app with `/etc/libinput/local-overrides.quirks` (`MatchName=ILIT2901:00
+222A:5539 Stylus`, `AttrTabletSmoothing=0`; takes effect when the device is
+re-added, so relogin). App side, `kMinStep` in `inkcanvas.cpp` went from 0.7
+to 0.05 logical px so no moving sample is dropped. Do not add smoothing,
+Bezier fitting or point thinning to the ink path.
+
 ## Session 7 Sep 2026 (Claude)
 
 Read the reflection PDF (`~/Documents/Reflectie-06-september-2026.pdf`, Willem's own hand): FW12 touch/digitizer not the best but works nicely; latency dropped a lot in performance mode; undo/redo icons sketched on the page and built by the agent ("fantastisch"); freedom to change everything vs the iPad notes app's blue lines. The vector original of that page was deleted after export (delete had no trash yet); the PDF is what survives.
