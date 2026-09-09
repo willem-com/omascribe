@@ -3,6 +3,9 @@
 A pencil-first notes app for the Framework 12 (and any Linux tablet with a stylus).
 One job: let the pen write, keep the ink as vectors, get out of the way.
 
+Version 0.1. Source: [github.com/willem-com/omascribe](https://github.com/willem-com/omascribe)
+and [source.willem.com/omascribe](https://source.willem.com/omascribe/). MIT licensed.
+
 Omawrite is for the keyboard. Omascribe is for the pen. Same stack (Qt Quick,
 C++), same quiet chrome, same follow-the-desktop light and dark.
 
@@ -100,3 +103,13 @@ No extra handling here.
 ## Name
 
 `omascribe`, not `omanote`. Scribe is the pen counterpart to write.
+
+## Contributing
+
+Issues and pull requests on GitHub are welcome. `./build/omascribe --self-test` must pass, and
+`./build/omascribe --probe-grid` (opens a window for a few seconds) after any change to input or
+the scene graph. The working notes in `DEV.md` explain the decisions that should not be reversed.
+
+## License
+
+MIT. See `LICENSE`.

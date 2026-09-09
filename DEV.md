@@ -6,6 +6,25 @@ This file is the pickup document. README is the user-facing summary.
 
 Leave this bench. Do not teardown. The installed app and the notes stay.
 
+## Publishing (since 9 Sep 2026, v0.1)
+
+Public: github.com/willem-com/omascribe (`origin`) and https://source.willem.com/omascribe/.
+Same pattern as gran-fondo: this bench is the canonical working copy; a clone lives in the
+source.willem.com folder on WillemFW (`~/Documents/Persoonlijke documenten/source.willem.com/omascribe/`),
+which the daily `source-willem-sync.sh` fast-forwards from GitHub and the inotify watcher rsyncs
+to the host. Flow for an update:
+
+```
+cd ~/bench/2026-09-06-omascribe
+git commit ...            # on main
+git push                  # GitHub, immediately
+ssh willemfw 'cd "$HOME/Documents/Persoonlijke documenten/source.willem.com/omascribe" && git pull --ff-only'
+                          # optional: source.willem.com right away instead of after the 06:10 sync
+```
+
+Version lives in `omascribe.pro` (`VERSION`), shown by `omascribe --version`. Tag releases `vX.Y`
+and cut a GitHub release. `bin/install` is unchanged.
+
 ## Pickup next session
 
 ```

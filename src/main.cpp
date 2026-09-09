@@ -379,6 +379,12 @@ int main(int argc, char *argv[])
         QSurfaceFormat::setDefaultFormat(format);
     }
 
+    if (argc > 1 && (QByteArray(argv[1]) == QByteArrayLiteral("--version")
+                     || QByteArray(argv[1]) == QByteArrayLiteral("-v"))) {
+        std::fprintf(stdout, "omascribe %s\n", OMASCRIBE_VERSION);
+        return 0;
+    }
+
     if (argc > 1 && QByteArray(argv[1]) == QByteArrayLiteral("--self-test")) {
         QGuiApplication app(argc, argv);
         return runSelfTest();
@@ -423,6 +429,7 @@ int main(int argc, char *argv[])
 
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("omascribe"));
+    app.setApplicationVersion(QStringLiteral(OMASCRIBE_VERSION));
     app.setApplicationDisplayName(QStringLiteral("Omascribe"));
     app.setDesktopFileName(QStringLiteral("omascribe"));
     app.setOrganizationName(QStringLiteral("willem.com"));
