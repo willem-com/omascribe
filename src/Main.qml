@@ -26,6 +26,24 @@ ApplicationWindow {
     readonly property real textScale: backend.textScale
     readonly property bool compact: width < 880
     property bool sidebarOpen: !compact
+    // Id of the typed-text block being edited, "" when none.
+    property string editingId: ""
+
+    function focusText(id) {
+        editingId = id;
+        for (var i = 0; i < textLayer.count; ++i) {
+            var item = textLayer.itemAt(i);
+            if (item && item.textId === id) {
+                item.forceActiveFocus();
+                return;
+            }
+        }
+    }
+
+    function leaveText() {
+        editingId = "";
+        canvas.forceActiveFocus();
+    }
 
     Material.theme: darkMode ? Material.Dark : Material.Light
     Material.accent: accentColor
@@ -99,6 +117,7 @@ ApplicationWindow {
         context: Qt.WindowShortcut
         onActivated: {
             titleField.focus = false;
+            win.leaveText();
             if (backend.document)
                 backend.document.clearSelection();
             if (compact)
@@ -109,6 +128,7 @@ ApplicationWindow {
     Shortcut { sequence: "E"; context: Qt.WindowShortcut; onActivated: canvas.tool = "eraser" }
     Shortcut { sequence: "V"; context: Qt.WindowShortcut; onActivated: canvas.tool = "select" }
     Shortcut { sequence: "L"; context: Qt.WindowShortcut; onActivated: canvas.tool = "ruler" }
+    Shortcut { sequence: "T"; context: Qt.WindowShortcut; onActivated: canvas.tool = "text" }
     Shortcut { sequences: ["Meta+F", "F11"]; context: Qt.ApplicationShortcut; onActivated: toggleFullScreen() }
     Shortcut { sequence: "Ctrl+E"; context: Qt.ApplicationShortcut; onActivated: win.openExport() }
     Shortcut { sequence: "Ctrl+?"; context: Qt.ApplicationShortcut; onActivated: shortcutsDialog.open() }
@@ -152,6 +172,73 @@ ApplicationWindow {
                 }
             }
             Component.onCompleted: tool = "pen"
+
+            // Tap: pick the block under the finger, else leave the one being
+            // edited, else start a new block whose margins follow the ink.
+            onTextTapped: function(x, y) {
+                var doc = backend.document;
+                if (!doc)
+                    return;
+                var hit = doc.textAt(x, y);
+                if (hit.length) {
+                    win.focusText(hit);
+                    return;
+                }
+                if (win.editingId.length) {
+                    win.leaveText();
+                    return;
+                }
+                var id = doc.addTextAt(x, y, canvas.width);
+                Qt.callLater(function() { win.focusText(id); });
+            }
+        }
+
+        // Typed text lives in document space, translated by the canvas scroll.
+        Item {
+            anchors.fill: canvas
+            clip: true
+            Repeater {
+                id: textLayer
+                model: backend.document ? backend.document.texts : null
+                delegate: TextEdit {
+                    id: block
+                    required property string textId
+                    required property real bx
+                    required property real by
+                    required property real bw
+                    required property string body
+                    required property real size
+                    x: bx
+                    y: by - canvas.viewY
+                    width: bw
+                    text: body
+                    wrapMode: TextEdit.Wrap
+                    font.family: "iA Writer Quattro S"
+                    font.pixelSize: size
+                    color: win.resolvedInk("ink")
+                    selectionColor: win.accentColor
+                    selectByMouse: true
+                    // Inert under the pen unless it is being edited or the text
+                    // tool is active, so ink can go over text.
+                    enabled: activeFocus || textId === win.editingId || canvas.tool === "text"
+                    onTextChanged: {
+                        if (backend.document && text !== body)
+                            backend.document.setTextContent(textId, text);
+                    }
+                    onActiveFocusChanged: {
+                        if (activeFocus)
+                            win.editingId = textId;
+                        else if (win.editingId === textId)
+                            win.editingId = "";
+                        if (!activeFocus && backend.document && text.trim().length === 0)
+                            backend.document.removeText(textId);
+                    }
+                    Keys.onEscapePressed: function(event) {
+                        win.leaveText();
+                        event.accepted = true;
+                    }
+                }
+            }
         }
 
         TextInput {
@@ -557,6 +644,7 @@ ApplicationWindow {
         ListElement { name: "eraser"; value: "eraser"; hint: "Eraser (E)" }
         ListElement { name: "select"; value: "select"; hint: "Select (V)" }
         ListElement { name: "ruler"; value: "ruler"; hint: "Ruler (L)" }
+        ListElement { name: "text"; value: "text"; hint: "Text (T): tap to type" }
     }
 
     ListModel {
@@ -581,7 +669,7 @@ ApplicationWindow {
         standardButtons: Dialog.Close
         anchors.centerIn: parent
         contentItem: Label {
-            text: "Pen draws. Two fingers scroll. Wheel scrolls.\nOne finger does nothing.\nLower stylus button  Eraser (hold, or tap to toggle)\nTwo-finger tap  Undo\nThree-finger tap  Redo\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nDelete  Delete selection\nF11  Fullscreen"
+            text: "Pen draws. Two fingers scroll. Wheel scrolls.\nOne finger does nothing.\nLower stylus button  Eraser (hold, or tap to toggle)\nTwo-finger tap  Undo\nThree-finger tap  Redo\nOne-finger tap  Type text there (tap a block to edit it)\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nT  Text tool (click to type)\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nDelete  Delete selection\nF11  Fullscreen"
             lineHeight: 1.45
         }
     }

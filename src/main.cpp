@@ -11,12 +11,15 @@
 #include <QQmlError>
 #include <QEventLoop>
 #include <QImage>
+#include <QKeyEvent>
+#include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTimer>
 #include <QSurfaceFormat>
 #include <QTemporaryDir>
 #include <QUrl>
+#include <cmath>
 #include <cstdio>
 
 #include "backend.h"
@@ -94,6 +97,64 @@ static int runSelfTest()
         ok = ok && t->title().isEmpty() && !t->canUndo() && t->canRedo();
         t->redo();
         ok = ok && t->title() == QStringLiteral("Ref   ");
+        delete t;
+    }
+
+    // Typed text: margins from wide ink, one undo step per block of typing,
+    // empty blocks vanish without a trace, JSON roundtrip.
+    {
+        Document *t = Document::createNew();
+        Stroke wide = s;
+        wide.id = QStringLiteral("wide");
+        wide.points = {{12.f, 100.f, 0.8f}, {700.f, 104.f, 0.8f}};
+        wide.recomputeBounds();
+        t->addStroke(wide);
+        const QString id = t->addTextAt(300, 140, 800);
+        ok = ok && t->textCount() == 1 && t->textIndex(id) == 0;
+        const TextBlock &b = t->textBlocks().at(0);
+        ok = ok && std::abs(b.x - wide.bounds.left()) < 0.01
+            && std::abs(b.width - wide.bounds.width()) < 0.01 && b.y < 140 && b.y > 120;
+        t->setTextContent(id, QStringLiteral("H"));
+        t->setTextContent(id, QStringLiteral("Hello"));
+        t->setTextContent(id, QStringLiteral("Hello page"));
+        ok = ok && t->textAt(b.x + 5, b.y + 5) == id && t->textAt(b.x - 40, b.y).isEmpty();
+        t->undo();
+        ok = ok && t->textBlocks().at(0).text.isEmpty();
+        t->redo();
+        ok = ok && t->textBlocks().at(0).text == QStringLiteral("Hello page");
+        Document *rt = Document::fromJson(t->toJson());
+        ok = ok && rt && rt->textCount() == 1
+            && rt->textBlocks().at(0).text == QStringLiteral("Hello page")
+            && std::abs(rt->textBlocks().at(0).width - b.width) < 0.01;
+        ok = ok && rt->contentHeight() >= rt->textBlocks().at(0).rect().bottom();
+        delete rt;
+
+        // Narrow ink: text starts at the tap and flows at reading width.
+        Document *n = Document::createNew();
+        n->addStroke(s);
+        const QString nid = n->addTextAt(100, 300, 1000);
+        ok = ok && std::abs(n->textBlocks().at(0).x - 100) < 0.01
+            && std::abs(n->textBlocks().at(0).width - 620) < 0.01;
+        // An untouched empty block removed leaves no undo step behind.
+        n->removeText(nid);
+        ok = ok && n->textCount() == 0 && n->canUndo();  // the stroke's Add remains
+        n->undo();
+        ok = ok && n->strokeCount() == 0;
+        delete n;
+
+        // Removing a block with text is undoable.
+        t->removeText(id);
+        ok = ok && t->textCount() == 0;
+        t->undo();
+        ok = ok && t->textCount() == 1 && t->textBlocks().at(0).text == QStringLiteral("Hello page");
+
+        QTemporaryDir tdir;
+        ok = ok && exportNotePdf(t, tdir.filePath(QStringLiteral("t.pdf")))
+            && writeAgentReadout(t, tdir.path());
+        QFile tr(tdir.filePath(QStringLiteral("current.json")));
+        ok = ok && tr.open(QIODevice::ReadOnly)
+            && QJsonDocument::fromJson(tr.readAll()).object().value(QStringLiteral("typedText")).toString()
+                == QStringLiteral("Hello page");
         delete t;
     }
 
@@ -183,15 +244,19 @@ static int runGridProbe(int argc, char *argv[])
         QTimer::singleShot(ms, &loop, &QEventLoop::quit);
         loop.exec();
     };
-    const auto countInk = [&](const QImage &img) {
+    // Non-paper pixels inside a window-space rect (logical px).
+    const auto countInkIn = [&](const QImage &img, const QRectF &area) {
         const qreal dpr = window->devicePixelRatio();
         const QColor paper = canvas->paperColor();
         int n = 0;
-        for (int y = int(250 * dpr); y < int(450 * dpr) && y < img.height(); ++y)
-            for (int x = int(500 * dpr); x < int(900 * dpr) && x < img.width(); ++x)
-                if (img.pixelColor(x, y) != paper)
+        for (int y = int(area.top() * dpr); y < int(area.bottom() * dpr) && y < img.height(); ++y)
+            for (int x = int(area.left() * dpr); x < int(area.right() * dpr) && x < img.width(); ++x)
+                if (y >= 0 && x >= 0 && img.pixelColor(x, y) != paper)
                     ++n;
         return n;
+    };
+    const auto countInk = [&](const QImage &img) {
+        return countInkIn(img, QRectF(500, 250, 400, 200));
     };
     const QString dir = argc > 2 ? QString::fromLocal8Bit(argv[2]) : QString();
     settle(700);
@@ -211,8 +276,44 @@ static int runGridProbe(int argc, char *argv[])
     }
     std::fprintf(stdout, "grid pixels: at rest %d, scrolling %d, 1.3 s later %d; viewY %g\n",
                  atRest, scrolling, faded, canvas->viewY());
-    const bool ok = atRest == 0 && scrolling > 50 && faded == 0 && canvas->viewY() > 0;
-    std::fprintf(stdout, ok ? "grid probe ok\n" : "grid probe FAILED\n");
+    const bool gridOk = atRest == 0 && scrolling > 50 && faded == 0 && canvas->viewY() > 0;
+
+    // Typed text: a tap on empty paper opens a block with focus, keys land in
+    // the document, and the glyphs render on the page.
+    Document *doc = backend.document();
+    emit canvas->textTapped(600, 360);
+    settle(150);
+    QQuickItem *focus = window->activeFocusItem();
+    const bool opened = doc && doc->textCount() == 1 && focus
+        && QByteArray(focus->metaObject()->className()).contains("TextEdit");
+    if (opened) {
+        for (const QChar ch : QStringLiteral("Hi there")) {
+            const Qt::Key key = ch == QLatin1Char(' ') ? Qt::Key_Space : Qt::Key(ch.toUpper().unicode());
+            QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, QString(ch));
+            QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier, QString(ch));
+            QCoreApplication::sendEvent(focus, &press);
+            QCoreApplication::sendEvent(focus, &release);
+        }
+    }
+    settle(150);
+    const QImage typed = window->grabWindow();
+    int typedPixels = 0;
+    if (opened) {
+        const QRectF r = doc->textBlocks().at(0).rect();
+        const QPointF origin = canvas->mapToScene(QPointF(r.x(), r.y() - canvas->viewY()));
+        typedPixels = countInkIn(typed, QRectF(origin, r.size()));
+    }
+    const bool textOk = opened && doc->textBlocks().at(0).text == QStringLiteral("Hi there")
+        && typedPixels > 20;
+    if (!dir.isEmpty())
+        typed.save(dir + QStringLiteral("/typed.png"));
+    std::fprintf(stdout, "text: blocks %d, body \"%s\", pixels %d\n",
+                 doc ? doc->textCount() : -1,
+                 doc && doc->textCount() ? qUtf8Printable(doc->textBlocks().at(0).text) : "",
+                 typedPixels);
+
+    const bool ok = gridOk && textOk;
+    std::fprintf(stdout, ok ? "window probe ok\n" : "window probe FAILED\n");
     return ok ? 0 : 1;
 }
 

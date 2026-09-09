@@ -1,6 +1,7 @@
 #include "document.h"
 #include "palette.h"
 
+#include <QFontMetricsF>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QPolygonF>
@@ -13,6 +14,11 @@ namespace {
 constexpr int kMaxHistory = 80;
 constexpr qreal kEmptyHeight = 1400;
 constexpr qreal kGrowPad = 480;
+constexpr qreal kTextSize = 17;          // px, interface font
+constexpr qreal kNormalTextWidth = 620;  // reading width when the ink does not set margins
+constexpr qreal kPageMargin = 24;
+constexpr qreal kInkCoversPage = 0.6;    // ink this wide (of the page) sets the text margins
+constexpr qreal kNearbyInk = 400;        // look this far above and below the tap for ink
 
 QString newId()
 {
@@ -172,8 +178,90 @@ void Stroke::translate(QPointF delta)
     bounds.translate(delta);
 }
 
+QJsonObject TextBlock::toJson() const
+{
+    QJsonObject o;
+    o.insert(QStringLiteral("id"), id);
+    o.insert(QStringLiteral("x"), round2(x));
+    o.insert(QStringLiteral("y"), round2(y));
+    o.insert(QStringLiteral("width"), round2(width));
+    o.insert(QStringLiteral("size"), round2(size));
+    o.insert(QStringLiteral("text"), text);
+    return o;
+}
+
+TextBlock TextBlock::fromJson(const QJsonObject &obj)
+{
+    TextBlock b;
+    b.id = obj.value(QStringLiteral("id")).toString();
+    if (b.id.isEmpty())
+        b.id = newId();
+    b.x = obj.value(QStringLiteral("x")).toDouble();
+    b.y = obj.value(QStringLiteral("y")).toDouble();
+    b.width = std::max(40.0, obj.value(QStringLiteral("width")).toDouble(320));
+    b.size = std::max(6.0, obj.value(QStringLiteral("size")).toDouble(kTextSize));
+    b.text = obj.value(QStringLiteral("text")).toString();
+    return b;
+}
+
+QFont TextBlock::font() const
+{
+    QFont f(QStringLiteral("iA Writer Quattro S"));
+    f.setPixelSize(int(std::round(size)));
+    return f;
+}
+
+QRectF TextBlock::rect() const
+{
+    const QFontMetricsF fm(font());
+    const QString body = text.isEmpty() ? QStringLiteral(" ") : text;
+    const QRectF laid = fm.boundingRect(QRectF(0, 0, width, 1e6), Qt::TextWordWrap, body);
+    const qreal h = std::max(laid.height(), fm.height());
+    return QRectF(x, y, width, h);
+}
+
+TextModel::TextModel(Document *doc)
+    : QAbstractListModel(doc)
+    , m_doc(doc)
+{
+}
+
+int TextModel::rowCount(const QModelIndex &parent) const
+{
+    return parent.isValid() ? 0 : m_doc->m_texts.size();
+}
+
+QVariant TextModel::data(const QModelIndex &index, int role) const
+{
+    if (!index.isValid() || index.row() < 0 || index.row() >= m_doc->m_texts.size())
+        return {};
+    const TextBlock &b = m_doc->m_texts.at(index.row());
+    switch (role) {
+    case IdRole: return b.id;
+    case XRole: return b.x;
+    case YRole: return b.y;
+    case WidthRole: return b.width;
+    case TextRole: return b.text;
+    case SizeRole: return b.size;
+    default: return {};
+    }
+}
+
+QHash<int, QByteArray> TextModel::roleNames() const
+{
+    return {
+        {IdRole, "textId"},
+        {XRole, "bx"},
+        {YRole, "by"},
+        {WidthRole, "bw"},
+        {TextRole, "body"},
+        {SizeRole, "size"},
+    };
+}
+
 Document::Document(QObject *parent)
     : QObject(parent)
+    , m_textModel(new TextModel(this))
 {
 }
 
@@ -204,6 +292,8 @@ qreal Document::contentHeight() const
     qreal h = kEmptyHeight;
     for (const Stroke &s : m_strokes)
         h = std::max(h, s.bounds.bottom() + kGrowPad);
+    for (const TextBlock &t : m_texts)
+        h = std::max(h, t.rect().bottom() + kGrowPad);
     return h;
 }
 
@@ -359,6 +449,161 @@ void Document::deleteSelection()
     emit selectionChanged();
 }
 
+QString Document::addTextAt(qreal x, qreal y, qreal pageWidth)
+{
+    // Margins from the handwriting near the tap; the whole page if none nearby.
+    QRectF near;
+    QRectF all;
+    for (const Stroke &s : m_strokes) {
+        if (s.points.isEmpty())
+            continue;
+        all |= s.bounds;
+        if (s.bounds.bottom() >= y - kNearbyInk && s.bounds.top() <= y + kNearbyInk)
+            near |= s.bounds;
+    }
+    const QRectF ink = near.isNull() ? all : near;
+
+    TextBlock b;
+    b.id = newId();
+    b.size = kTextSize;
+    const bool covers = !ink.isNull() && ink.width() >= kInkCoversPage * pageWidth;
+    if (covers) {
+        b.x = std::max(0.0, ink.left());
+        b.width = std::min(ink.width(), pageWidth - b.x - 8);
+    } else {
+        b.x = std::max(kPageMargin, x);
+        b.width = std::min(kNormalTextWidth, pageWidth - kPageMargin - b.x);
+        if (b.width < 200) {
+            b.width = std::min(kNormalTextWidth, pageWidth - 2 * kPageMargin);
+            b.x = std::max(kPageMargin, pageWidth - kPageMargin - b.width);
+        }
+    }
+    b.width = std::max(40.0, b.width);
+    b.y = std::max(0.0, y - b.size * 0.75);
+    return addText(b);
+}
+
+QString Document::addText(TextBlock block)
+{
+    if (block.id.isEmpty())
+        block.id = newId();
+    insertBlock(block, m_texts.size());
+    Edit e;
+    e.kind = EditKind::AddText;
+    e.block = block;
+    pushUndo(e);
+    afterTextChange();
+    return block.id;
+}
+
+QString Document::textAt(qreal x, qreal y) const
+{
+    const QPointF p(x, y);
+    for (int i = m_texts.size() - 1; i >= 0; --i) {
+        if (m_texts[i].rect().adjusted(-4, -4, 4, 4).contains(p))
+            return m_texts[i].id;
+    }
+    return {};
+}
+
+void Document::setTextContent(const QString &id, const QString &text)
+{
+    const int i = textIndex(id);
+    if (i < 0 || m_texts[i].text == text)
+        return;
+    const QString before = m_texts[i].text;
+    applyText(id, text);
+    // Typing into one block is one undo step, like the title.
+    if (!m_undo.isEmpty() && m_undo.last().kind == EditKind::EditText
+        && m_undo.last().block.id == id && m_redo.isEmpty()) {
+        m_undo.last().textAfter = text;
+    } else {
+        Edit e;
+        e.kind = EditKind::EditText;
+        e.block = m_texts[i];
+        e.block.text = before;
+        e.textAfter = text;
+        pushUndo(e);
+    }
+    afterTextChange();
+}
+
+void Document::removeText(const QString &id)
+{
+    int index = -1;
+    const TextBlock block = takeBlock(id, &index);
+    if (index < 0)
+        return;
+    if (block.text.trimmed().isEmpty()) {
+        // An empty block leaves no trace, not even in the history: collapse the
+        // AddText (and any typing) that produced it.
+        while (!m_undo.isEmpty() && m_undo.last().block.id == id
+               && (m_undo.last().kind == EditKind::EditText
+                   || m_undo.last().kind == EditKind::AddText)) {
+            const bool wasAdd = m_undo.last().kind == EditKind::AddText;
+            m_undo.removeLast();
+            if (wasAdd)
+                break;
+        }
+        emit historyChanged();
+        afterTextChange();
+        return;
+    }
+    Edit e;
+    e.kind = EditKind::RemoveText;
+    e.block = block;
+    e.textIndex = index;
+    pushUndo(e);
+    afterTextChange();
+}
+
+int Document::textIndex(const QString &id) const
+{
+    for (int i = 0; i < m_texts.size(); ++i) {
+        if (m_texts[i].id == id)
+            return i;
+    }
+    return -1;
+}
+
+void Document::insertBlock(const TextBlock &block, int index)
+{
+    index = std::clamp(index, 0, int(m_texts.size()));
+    m_textModel->beginInsertRows(QModelIndex(), index, index);
+    m_texts.insert(index, block);
+    m_textModel->endInsertRows();
+}
+
+TextBlock Document::takeBlock(const QString &id, int *index)
+{
+    const int i = textIndex(id);
+    *index = i;
+    if (i < 0)
+        return {};
+    m_textModel->beginRemoveRows(QModelIndex(), i, i);
+    const TextBlock block = m_texts.takeAt(i);
+    m_textModel->endRemoveRows();
+    return block;
+}
+
+void Document::applyText(const QString &id, const QString &text)
+{
+    const int i = textIndex(id);
+    if (i < 0)
+        return;
+    m_texts[i].text = text;
+    const QModelIndex mi = m_textModel->index(i);
+    emit m_textModel->dataChanged(mi, mi, {TextModel::TextRole});
+}
+
+void Document::afterTextChange()
+{
+    touchModifiedTime();
+    setModified(true);
+    emit contentsChanged();
+    emit geometryChanged();
+}
+
 void Document::undo()
 {
     if (m_undo.isEmpty())
@@ -390,6 +635,17 @@ void Document::undo()
     case EditKind::Title:
         m_title = e.beforeTitle;
         emit titleChanged();
+        break;
+    case EditKind::AddText: {
+        int index = -1;
+        takeBlock(e.block.id, &index);
+        break;
+    }
+    case EditKind::RemoveText:
+        insertBlock(e.block, e.textIndex);
+        break;
+    case EditKind::EditText:
+        applyText(e.block.id, e.block.text);
         break;
     }
     m_redo.append(e);
@@ -433,6 +689,17 @@ void Document::redo()
         m_title = e.afterTitle;
         emit titleChanged();
         break;
+    case EditKind::AddText:
+        insertBlock(e.block, m_texts.size());
+        break;
+    case EditKind::RemoveText: {
+        int index = -1;
+        takeBlock(e.block.id, &index);
+        break;
+    }
+    case EditKind::EditText:
+        applyText(e.block.id, e.textAfter);
+        break;
     }
     m_undo.append(e);
     touchModifiedTime();
@@ -457,6 +724,11 @@ QJsonObject Document::toJson() const
     for (const Stroke &s : m_strokes)
         arr.append(s.toJson());
     o.insert(QStringLiteral("strokes"), arr);
+    QJsonArray texts;
+    for (const TextBlock &t : m_texts)
+        texts.append(t.toJson());
+    if (!texts.isEmpty())
+        o.insert(QStringLiteral("texts"), texts);
     return o;
 }
 
@@ -485,6 +757,9 @@ Document *Document::fromJson(const QJsonObject &obj, QObject *parent)
     doc->m_strokes.reserve(arr.size());
     for (const QJsonValue &v : arr)
         doc->m_strokes.append(Stroke::fromJson(v.toObject()));
+    const QJsonArray texts = obj.value(QStringLiteral("texts")).toArray();
+    for (const QJsonValue &v : texts)
+        doc->m_texts.append(TextBlock::fromJson(v.toObject()));
     doc->m_modified = false;
     return doc;
 }

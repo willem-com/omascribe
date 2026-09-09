@@ -27,6 +27,17 @@ constexpr qreal kMarginPt = 36;
 constexpr qreal kTitlePt = 18;
 const QColor kPaper(QStringLiteral("#ffffff"));
 
+// Ink and typed text together.
+QRectF contentBounds(const Document *doc)
+{
+    QRectF b = strokesBounds(doc->strokes());
+    for (const TextBlock &t : doc->textBlocks()) {
+        const QRectF r = t.rect();
+        b = b.isNull() ? r : b.united(r);
+    }
+    return b;
+}
+
 struct Layout {
     QSizeF page;
     qreal scale = 1;
@@ -37,7 +48,7 @@ struct Layout {
 Layout layoutFor(const Document *doc)
 {
     Layout layout;
-    QRectF ink = strokesBounds(doc->strokes());
+    QRectF ink = contentBounds(doc);
     if (ink.isNull())
         ink = QRectF(0, 0, 400, 240);
     const qreal usable = kPageWidthPt - 2 * kMarginPt;
@@ -72,6 +83,15 @@ void renderNote(QPainter *painter, const Document *doc, const Layout &layout)
     painter->scale(layout.scale, layout.scale);
     for (const Stroke &stroke : doc->strokes())
         paintStroke(painter, stroke, resolvePrintColor(stroke.colorId));
+    painter->setPen(resolvePrintColor(QStringLiteral("ink")));
+    for (const TextBlock &t : doc->textBlocks()) {
+        if (t.text.trimmed().isEmpty())
+            continue;
+        painter->setFont(t.font());
+        const QRectF r = t.rect();
+        painter->drawText(QRectF(r.x(), r.y(), r.width(), r.height() + 4),
+                          Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, t.text);
+    }
     painter->restore();
 }
 
@@ -169,7 +189,7 @@ bool writeAgentReadout(const Document *doc, const QString &dir)
     for (const QString &c : colors)
         colorList.append(c);
 
-    const QRectF bounds = strokesBounds(doc->strokes());
+    const QRectF bounds = contentBounds(doc);
     QJsonObject box;
     box.insert(QStringLiteral("x"), bounds.x());
     box.insert(QStringLiteral("y"), bounds.y());
@@ -186,10 +206,27 @@ bool writeAgentReadout(const Document *doc, const QString &dir)
     o.insert(QStringLiteral("svg"), svgPath);
     o.insert(QStringLiteral("modified"), doc->modifiedTime().toUTC().toString(Qt::ISODateWithMs));
     o.insert(QStringLiteral("strokeCount"), doc->strokeCount());
+    o.insert(QStringLiteral("textCount"), doc->textCount());
+    QJsonArray texts;
+    QStringList joined;
+    for (const TextBlock &t : doc->textBlocks()) {
+        QJsonObject tb;
+        tb.insert(QStringLiteral("id"), t.id);
+        tb.insert(QStringLiteral("x"), t.x);
+        tb.insert(QStringLiteral("y"), t.y);
+        tb.insert(QStringLiteral("width"), t.width);
+        tb.insert(QStringLiteral("text"), t.text);
+        texts.append(tb);
+        if (!t.text.trimmed().isEmpty())
+            joined.append(t.text.trimmed());
+    }
+    o.insert(QStringLiteral("texts"), texts);
+    o.insert(QStringLiteral("typedText"), joined.join(QStringLiteral("\n\n")));
     o.insert(QStringLiteral("colors"), colorList);
     o.insert(QStringLiteral("bounds"), box);
     o.insert(QStringLiteral("hint"),
-             QStringLiteral("preview is the ink on white paper. path is the live vector JSON."));
+             QStringLiteral("preview is the ink and typed text on white paper. path is the live "
+                            "vector JSON. typedText holds the keyboard text verbatim."));
 
     QSaveFile file(jsonPath);
     if (!file.open(QIODevice::WriteOnly))

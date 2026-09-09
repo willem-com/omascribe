@@ -75,6 +75,9 @@ signals:
     void gridColorChanged();
     void darkModeChanged();
     void drawingChanged();
+    // A tap that should place or pick typed text: one finger, or the pen /
+    // mouse with the text tool. Document coordinates.
+    void textTapped(qreal x, qreal y);
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
@@ -129,6 +132,7 @@ private:
     bool m_movingSelection = false;
     bool m_lassoing = false;
     bool m_penDown = false;
+    bool m_textTap = false;          // text tool: press without drag becomes a tap
     bool m_penNear = false;          // stylus in proximity (hovering or down)
     QElapsedTimer m_penClock;        // last tablet event, guards a missed leave
     Pointer m_activePointer = Pointer::None;

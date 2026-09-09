@@ -9,5 +9,6 @@
         <file alias="icons/redo.svg">icons/redo.svg</file>
         <file alias="icons/plus.svg">icons/plus.svg</file>
         <file alias="icons/trash.svg">icons/trash.svg</file>
+        <file alias="icons/text.svg">icons/text.svg</file>
     </qresource>
 </RCC>

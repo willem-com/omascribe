@@ -82,7 +82,7 @@ Self-test covers JSON roundtrip, named-colour canonicalization, undo/redo, PDF/S
 | `src/systemtheme.*` | copied from omawrite: portal dark/light + text scale |
 | `src/backend.*` | note list, autosave, theme colours, export, readout |
 | `src/store.*` | `NoteStore` scans `notes/*.omascribe` |
-| `src/document.*` | strokes, undo stack, JSON |
+| `src/document.*` | strokes, typed text blocks and their list model, undo stack, JSON |
 | `src/ink.*` | stroke geometry: ribbon (paired edge points), outline path for export, triangle list for the GPU |
 | `src/inkcanvas.*` | tablet/touch/mouse, tools, pan, cursor; scene-graph nodes in `updatePaintNode` |
 | `src/palette.h` | named inks for screen vs print |
@@ -94,6 +94,20 @@ InkCanvas is a plain `QQuickItem` since 7 Sep 2026. It builds scene-graph nodes 
 History: the first version was a `QQuickPaintedItem` that repainted every stroke through QPainter on the CPU on every frame, hover event and scroll. That is why the pen felt better in the performance power profile (Willem's reflection, 6 Sep 23:05). A bitmap cache of committed ink was tried (commit `f449273`) and reverted (`47ef67f`): sagged look, no latency gain.
 
 Stroke geometry (`ink.cpp`): `strokeRibbon` walks the polyline and emits paired left/right edge points at radius `strokeRadius` (width x pressure). Turns sharper than ~20 degrees collapse the inner side onto one point and walk an arc on the outer side, so joins stay round. `strokeOutline` turns that into one closed `QPainterPath` (winding fill, two round caps) for PDF/SVG/PNG; `appendStrokeTriangles` turns it into a triangle list for the scene graph. Same edge, both routes.
+
+## Typed text (9 Sep 2026)
+
+Willem: "click anywhere and continue my notes writing", text at a normal width, margins following the handwriting when it covers the page.
+
+- `TextBlock {id, x, y, width, size, text}` in `document.h`, stored under `"texts"` in the JSON (absent when empty; old loaders ignore it). Laid out in document units with the interface font at `size` px (17). `TextBlock::rect()` uses `QFontMetricsF` word wrap; the QML `TextEdit` uses `TextEdit.Wrap`. Close enough for hit tests, bounds and page growth; export draws with `QPainter::drawText` at the same font.
+- `Document::addTextAt(x, y, pageWidth)`: takes the ink within 400 px above/below the tap (all ink if none nearby). If that ink is at least 60 % of the page width the block gets the ink's left edge and width; else it starts at the tap x and flows at 620 px (clamped to the page with 24 px margins). Top = tap y minus three quarters of a line so the caret lands under the finger.
+- `setTextContent` coalesces typing into one undo step per block (like the title). `removeText` on an empty block also erases its AddText from the history, so a stray tap leaves nothing.
+- Screen: a `Repeater` over `document.texts` (`TextModel`, a `QAbstractListModel` over the document's vector) draws `TextEdit`s in an `Item` that fills the canvas; `y: by - canvas.viewY`. A block is `enabled` only while edited or with the Text tool active, so the pen draws over text.
+- Placing: `InkCanvas::textTapped(x, y)` fires on a one-finger tap (under 400 ms, under 24 px) or a press/release without drag with the Text tool. QML: block under the tap → focus it; else if editing → leave; else `addTextAt`. Escape leaves. An empty block is removed on focus loss.
+- Readout gains `textCount`, `texts[]` and `typedText` (blocks joined by blank lines), so an agent reads keyboard text verbatim and only needs the PNG for the handwriting.
+- Not done: moving or resizing a block, eraser/lasso on text (delete text by emptying it), text colour other than `ink`, size choice.
+
+Verified by `omascribe --probe-grid`: after the grid checks it emits a tap, sends key events into the focused `TextEdit`, and requires the document to hold "Hi there" and the block's rect to carry ink pixels.
 
 ## File format
 

@@ -15,6 +15,7 @@ C++), same quiet chrome, same follow-the-desktop light and dark.
 - Notes live as `.omascribe` JSON under `~/.local/share/omascribe/notes/`. Autosave.
 - Inks are named (`ink`, `blue`, `red`, `gray`) and resolved against the paper, so a theme
   change never hides a stroke. `ink` is always the contrasting writing colour.
+- Typed text too: tap the page with one finger (or click with the Text tool, `T`) and type. The block wraps at the width of your handwriting when the ink spans the page, otherwise at a normal reading width from where you tapped. Tap a block to edit it, tap empty paper to leave it. Pen draws over text.
 - Undo / redo. Title in the page. Note list on the left, like Apple Notes.
 - Ink is drawn as scene-graph geometry with 4x MSAA, so scrolling and hovering cost the CPU nothing.
 - Deleting a note moves it to `~/.local/share/omascribe/trash/`.
@@ -39,7 +40,7 @@ Needs `qt6-base`, `qt6-declarative`, `xdg-desktop-portal`. `qmake6` and `g++` do
 ## Use
 
 - Pen draws. Two fingers or the wheel scroll. Nothing else moves the page, ever.
-- `P` pen, `E` eraser, `V` select, `L` ruler
+- `P` pen, `E` eraser, `V` select, `L` ruler, `T` text
 - `Ctrl+N` new note, `Ctrl+E` export PDF or SVG, `Ctrl+Z` undo, `Ctrl+Shift+Z` redo
 - Two-finger tap undoes, three-finger tap redoes
 - `Delete` deletes a selection, `F11` fullscreen
@@ -62,7 +63,7 @@ While Omascribe is open, the current note is mirrored for agents (no screenshot 
 the window required):
 
 ```
-~/.local/share/omascribe/current.json   metadata: title, strokes, colors, bounds, paths
+~/.local/share/omascribe/current.json   metadata: title, strokes, colors, bounds, paths, typedText
 ~/.local/share/omascribe/current.png    ink on white paper (for vision)
 ~/.local/share/omascribe/current.svg    same ink as vectors
 ~/.local/share/omascribe/current.omascribe  symlink to the live JSON note
@@ -85,7 +86,8 @@ Vector strokes, not bitmaps:
   "version": 1,
   "id": "...",
   "title": "...",
-  "strokes": [{ "tool": "fineliner", "color": "#222324", "width": 2.4, "p": [x, y, pressure, ...] }]
+  "strokes": [{ "tool": "fineliner", "color": "ink", "width": 2.4, "p": [x, y, pressure, ...] }],
+  "texts": [{ "id": "...", "x": 24, "y": 600, "width": 620, "size": 17, "text": "typed" }]
 }
 ```
 

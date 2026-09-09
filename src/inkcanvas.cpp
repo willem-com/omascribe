@@ -469,7 +469,7 @@ void InkCanvas::syncCursor(QSGGeometryNode *dot, QSGGeometryNode *ring)
     if (wantErase()) {
         ringPoints(p, kEraserRadius, ringPts);
         setNodeColor(ring, m_darkMode ? QColor(255, 255, 255, 160) : QColor(0, 0, 0, 140));
-    } else if (m_tool == QStringLiteral("select")) {
+    } else if (m_tool == QStringLiteral("select") || m_tool == QStringLiteral("text")) {
         ringPoints(p, 5, ringPts);
         setNodeColor(ring, m_darkMode ? QColor(255, 255, 255, 160) : QColor(0, 0, 0, 140));
     } else {
@@ -672,6 +672,11 @@ void InkCanvas::touchEvent(QTouchEvent *event)
             m_document->undo();
         else
             m_document->redo();
+    } else if (m_touchMaxFingers == 1 && !m_touchMoved && m_touchClock.isValid()
+               && m_touchClock.elapsed() < 400 && !event->points().isEmpty()) {
+        // One finger never moves the page; a short tap places or picks text.
+        const QPointF d = toDoc(event->points().first().position());
+        emit textTapped(d.x(), d.y());
     }
     m_touchLast.clear();
     m_touchMaxFingers = 0;
@@ -857,6 +862,11 @@ void InkCanvas::pointerDown(QPointF local, float pressure, Pointer pointer, bool
         return;
     }
 
+    if (tool == QStringLiteral("text")) {
+        m_textTap = true;
+        return;
+    }
+
     if (tool == QStringLiteral("select")) {
         if (selectionContains(m_pressDoc)) {
             m_movingSelection = true;
@@ -882,6 +892,12 @@ void InkCanvas::pointerMove(QPointF local, float pressure, Pointer pointer)
     const QPointF doc = toDoc(local);
     m_hoverDoc = doc;
     m_hovering = true;
+
+    if (m_textTap) {
+        if ((doc - m_pressDoc).manhattanLength() > 6)
+            m_textTap = false;
+        return;
+    }
 
     if (m_document && wantErase() && !m_liveActive && !m_lassoing
         && !m_movingSelection && (m_activePointer == Pointer::Pen || m_activePointer == Pointer::Mouse)) {
@@ -912,6 +928,14 @@ void InkCanvas::pointerUp(QPointF local, Pointer pointer)
 {
     Q_UNUSED(pointer);
     const QPointF doc = toDoc(local);
+    if (m_tool == QStringLiteral("text")) {
+        const bool tap = m_textTap;
+        m_textTap = false;
+        m_activePointer = Pointer::None;
+        if (tap)
+            emit textTapped(doc.x(), doc.y());
+        return;
+    }
     if (m_movingSelection) {
         if (m_document)
             m_document->endTranslate();
