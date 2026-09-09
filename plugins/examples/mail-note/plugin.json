@@ -1,0 +1,7 @@
+{
+  "name": "Mail",
+  "hint": "Export as PDF and mail it to your notes address",
+  "exec": "send-note.py",
+  "input": "pdf",
+  "success": "Sent"
+}

@@ -319,6 +319,52 @@ ApplicationWindow {
             }
         }
 
+        // Per-install plugin chips, left of Export. See plugins/README.md.
+        Row {
+            id: pluginRow
+            visible: !win.zen
+            z: 21
+            anchors.right: exportChip.left
+            anchors.top: parent.top
+            anchors.topMargin: win.scaledSize(12)
+            anchors.rightMargin: win.scaledSize(8)
+            spacing: win.scaledSize(8)
+            Repeater {
+                model: backend.plugins
+                delegate: Rectangle {
+                    required property string pluginId
+                    required property string name
+                    required property string hint
+                    readonly property bool busy: backend.plugins.running === name
+                    height: win.scaledSize(32)
+                    width: pluginLabel.width + win.scaledSize(22)
+                    radius: height / 2
+                    color: win.darkMode ? "#cc1a1a1a" : "#e6fffdf8"
+                    border.color: win.darkMode ? "#333333" : "#ddd6c8"
+                    opacity: backend.plugins.running.length && !busy ? 0.5 : 1
+                    Label {
+                        id: pluginLabel
+                        anchors.centerIn: parent
+                        text: parent.busy ? parent.name + " \u2026" : parent.name
+                        color: win.textColor
+                        font.family: "iA Writer Quattro S"
+                        font.pixelSize: win.scaledSize(13)
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        anchors.margins: -8
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: backend.plugins.running.length === 0
+                        onClicked: backend.runPlugin(parent.pluginId)
+                        ToolTip.visible: containsMouse && parent.hint.length > 0
+                        ToolTip.text: parent.hint
+                        ToolTip.delay: 350
+                    }
+                }
+            }
+        }
+
         Rectangle {
             id: exportChip
             visible: !win.zen
@@ -528,6 +574,52 @@ ApplicationWindow {
                         }
                     }
                 }
+            }
+        }
+
+        // Toast: a plugin's result, big enough to notice, above the tool pill.
+        Rectangle {
+            id: toastPill
+            objectName: "toastPill"
+            property bool ok: true
+            z: 30
+            anchors.horizontalCenter: toolPill.horizontalCenter
+            anchors.bottom: toolPill.top
+            anchors.bottomMargin: win.scaledSize(14)
+            height: win.scaledSize(36)
+            width: toastLabel.width + win.scaledSize(32)
+            radius: height / 2
+            color: win.darkMode ? "#e61a1a1a" : "#f2fffdf8"
+            border.color: ok ? win.accentColor : (win.darkMode ? "#e07070" : "#c0392b")
+            border.width: 1
+            opacity: 0
+            visible: opacity > 0
+            Behavior on opacity { NumberAnimation { duration: 220 } }
+            Label {
+                id: toastLabel
+                anchors.centerIn: parent
+                color: win.textColor
+                font.family: "iA Writer Quattro S"
+                font.pixelSize: win.scaledSize(14)
+            }
+            Timer {
+                id: toastHide
+                onTriggered: toastPill.opacity = 0
+            }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: toastPill.opacity = 0
+            }
+        }
+
+        Connections {
+            target: backend
+            function onToast(message, ms, ok) {
+                toastLabel.text = message;
+                toastPill.ok = ok;
+                toastPill.opacity = 1;
+                toastHide.interval = ms;
+                toastHide.restart();
             }
         }
 

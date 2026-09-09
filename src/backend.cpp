@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QCoreApplication>
 #include <QFileSystemWatcher>
 #include <QJsonDocument>
 #include <QSaveFile>
@@ -25,7 +26,12 @@ QFileSystemWatcher *themeWatcher()
 Backend::Backend(QObject *parent)
     : QObject(parent)
     , m_notes(new NoteStore(this))
+    , m_plugins(new PluginModel(this))
 {
+    connect(m_plugins, &PluginModel::finished, this, [this](bool ok, const QString &message) {
+        emit toast(message, ok ? 4500 : 7000, ok);
+    });
+
     m_saveTimer.setSingleShot(true);
     m_saveTimer.setInterval(350);
     connect(&m_saveTimer, &QTimer::timeout, this, &Backend::saveNow);
@@ -169,6 +175,20 @@ void Backend::exportNote(const QUrl &url)
         path += QStringLiteral(".pdf");
     const bool ok = svg ? exportNoteSvg(m_document, path) : exportNotePdf(m_document, path);
     setStatus(ok ? QStringLiteral("Exported") : QStringLiteral("Export failed"));
+}
+
+QString Backend::version() const
+{
+    return QCoreApplication::applicationVersion();
+}
+
+// Save first so the plugin sees the note as it is on screen.
+void Backend::runPlugin(const QString &id)
+{
+    if (!m_document)
+        return;
+    saveNow();
+    m_plugins->run(id, m_document, version());
 }
 
 QUrl Backend::suggestedExportUrl() const

@@ -106,13 +106,26 @@ Self-test covers JSON roundtrip, named-colour canonicalization, undo/redo, PDF/S
 | `src/inkcanvas.*` | tablet/touch/mouse, tools, pan, cursor; scene-graph nodes in `updatePaintNode` |
 | `src/palette.h` | named inks for screen vs print |
 | `src/exporter.*` | PDF, SVG, PNG, `writeAgentReadout` |
-| `src/Main.qml` | Apple Notes-ish chrome, tool pill, Notes/Export chips |
+| `src/plugins.*` | `PluginModel`: scans `~/.config/omascribe/plugins/*/plugin.json`, exports, runs the program with the contract env, reports a toast |
+| `src/Main.qml` | Apple Notes-ish chrome, tool pill, Notes/Export chips, plugin chips, toast pill |
 
 InkCanvas is a plain `QQuickItem` since 7 Sep 2026. It builds scene-graph nodes in `updatePaintNode`: paper rect in item space, then one `QSGTransformNode` (translate by `-viewY`) holding the dot grid, one `QSGGeometryNode` per committed stroke, the live stroke, lasso, selection box and cursor. Scrolling is a matrix change. A committed stroke's triangles are built once and cached by stroke id (rebuilt when its point count, bounds, colour or the palette change); only the live stroke is rebuilt per frame. Edges are smoothed with 4x MSAA requested on the default `QSurfaceFormat` in `main.cpp` (`OMASCRIBE_MSAA=0|2|4|8` to compare). Hidden nodes sit under a `QSGOpacityNode` at opacity 0 and never carry zero vertices (a degenerate triangle instead).
 
 History: the first version was a `QQuickPaintedItem` that repainted every stroke through QPainter on the CPU on every frame, hover event and scroll. That is why the pen felt better in the performance power profile (Willem's reflection, 6 Sep 23:05). A bitmap cache of committed ink was tried (commit `f449273`) and reverted (`47ef67f`): sagged look, no latency gain.
 
 Stroke geometry (`ink.cpp`): `strokeRibbon` walks the polyline and emits paired left/right edge points at radius `strokeRadius` (width x pressure). Turns sharper than ~20 degrees collapse the inner side onto one point and walk an arc on the outer side, so joins stay round. `strokeOutline` turns that into one closed `QPainterPath` (winding fill, two round caps) for PDF/SVG/PNG; `appendStrokeTriangles` turns it into a triangle list for the scene graph. Same edge, both routes.
+
+## Plugins (9 Sep 2026)
+
+Willem: a "built for me" button (mail the note as PDF to note@willem.com) without anything personal in the public source. Answer: the loader and the contract are general (`plugins/README.md`, `src/plugins.*`), the plugins are per install under `~/.config/omascribe/plugins/<id>/` (`OMASCRIBE_PLUGINS_DIR` overrides, used by the tests).
+
+- `plugin.json`: name, hint, exec (relative to the dir or absolute, must be executable), input (pdf|svg|png|json|none), success. Load failures (missing name/exec, not executable) skip the plugin silently.
+- `Backend::runPlugin(id)`: `saveNow()`, then `PluginModel::run`: export into a `QTemporaryDir`, `QProcess` with cwd = plugin dir, file as argv[1] and the `OMASCRIBE_*` env. Exit 0: toast = last stdout line, else `success`, else "name: done" (4.5 s). Else: "name failed: last stderr line" (7 s). One at a time; the chip shows an ellipsis while running.
+- Toast: `Backend::toast(message, ms, ok)` → `toastPill` above the tool pill (accent border, red border on failure), click to dismiss. The small "Saved" status label is unchanged.
+- Trap: `m_work` (QTemporaryDir) must be declared before `m_process`; `~QProcess` can still deliver `finished()` into the handler that resets `m_work`. Found as a SEGV in the self-test on 9 Sep. The destructor disconnects and kills a running process.
+- Tests: self-test runs an echo plugin headless and checks the toast text and the env contract; `--probe-grid` adds a scratch plugin, clicks it through `runPlugin` and checks the toast pill is visible.
+
+Willem's plugin on WillemBG (NOT in the repo): `~/.config/omascribe/plugins/send-to-notes/` = the example `send-note.py` + `plugin.json` (chip "Notes", success "Sent to note@willem.com") + `secrets.env` (mode 600: online.lemmid.com:587 STARTTLS, mail@willem.com credentials from [[willem-personal-mailbox]], MAIL_TO=note@willem.com, from name "Willem (Omascribe on WillemBG)"). Subject = note title; body = title, created/modified, stroke and text counts, typed text excerpt, "Sent from Omascribe 0.1 on WillemBG". The script refuses a secrets.env that is not mode 600. Re-create the directory after a reinstall; the example in the repo is the template.
 
 ## Typed text (9 Sep 2026)
 

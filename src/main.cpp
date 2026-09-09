@@ -10,7 +10,10 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlError>
+#include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QEventLoop>
+#include "plugins.h"
 #include <QImage>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -192,6 +195,53 @@ static int runSelfTest()
             == QStringLiteral("omascribe-readout")
         && preview.read(8).startsWith("\x89PNG");
 
+    // Plugins: plugin.json is read, the note is exported, the program gets the
+    // contract's environment, and its last stdout line becomes the toast.
+    {
+        QTemporaryDir plugins;
+        const QString dir = plugins.path() + QStringLiteral("/echo-test");
+        QDir().mkpath(dir);
+        QFile json(dir + QStringLiteral("/plugin.json"));
+        ok = ok && json.open(QIODevice::WriteOnly)
+            && json.write("{\"name\":\"Echo\",\"exec\":\"run.sh\",\"input\":\"pdf\"}") > 0;
+        json.close();
+        QFile script(dir + QStringLiteral("/run.sh"));
+        ok = ok && script.open(QIODevice::WriteOnly)
+            && script.write("#!/bin/sh\nhead -c 4 \"$1\" | grep -q '%PDF' || exit 3\n"
+                            "[ \"$OMASCRIBE_INPUT\" = pdf ] || exit 4\n"
+                            "[ -n \"$OMASCRIBE_HOST\" ] || exit 5\n"
+                            "echo \"echoed $OMASCRIBE_TITLE ($OMASCRIBE_STROKES strokes)\"\n") > 0;
+        script.close();
+        QFile::setPermissions(script.fileName(), QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+        qputenv("OMASCRIBE_PLUGINS_DIR", plugins.path().toUtf8());
+        PluginModel model;
+        ok = ok && model.rowCount() == 1 && model.find(QStringLiteral("echo-test"))
+            && model.find(QStringLiteral("echo-test"))->exec == dir + QStringLiteral("/run.sh");
+        QString toastText;
+        bool toastOk = false;
+        bool got = false;
+        QObject::connect(&model, &PluginModel::finished, [&](bool k, const QString &m) {
+            toastOk = k; toastText = m; got = true;
+        });
+        model.run(QStringLiteral("echo-test"), doc, QStringLiteral("test"));
+        QElapsedTimer wait;
+        wait.start();
+        while (!got && wait.elapsed() < 10000)
+            QCoreApplication::processEvents(QEventLoop::WaitForMoreEvents, 100);
+        ok = ok && got && toastOk && toastText == QStringLiteral("echoed Test note (1 strokes)");
+        if (got && !toastOk)
+            std::fprintf(stderr, "plugin self-test: %s\n", qUtf8Printable(toastText));
+        // A missing program is a load failure, not a crash.
+        QDir().mkpath(plugins.path() + QStringLiteral("/broken"));
+        QFile bad(plugins.path() + QStringLiteral("/broken/plugin.json"));
+        bad.open(QIODevice::WriteOnly);
+        bad.write("{\"name\":\"Bad\",\"exec\":\"nope\"}");
+        bad.close();
+        model.reload();
+        ok = ok && model.rowCount() == 1;
+        qunsetenv("OMASCRIBE_PLUGINS_DIR");
+    }
+
     // Deleting a note moves it to trash/ instead of removing it.
     {
         QTemporaryDir dataHome;
@@ -232,6 +282,22 @@ static int runGridProbe(int argc, char *argv[])
     QTemporaryDir configHome;
     qputenv("XDG_DATA_HOME", dataHome.path().toUtf8());
     qputenv("XDG_CONFIG_HOME", configHome.path().toUtf8());
+    // One scratch plugin so the chip and the toast can be checked.
+    QTemporaryDir pluginsDir;
+    {
+        const QString dir = pluginsDir.path() + QStringLiteral("/probe");
+        QDir().mkpath(dir);
+        QFile json(dir + QStringLiteral("/plugin.json"));
+        json.open(QIODevice::WriteOnly);
+        json.write("{\"name\":\"Probe\",\"exec\":\"run.sh\",\"input\":\"pdf\"}");
+        json.close();
+        QFile script(dir + QStringLiteral("/run.sh"));
+        script.open(QIODevice::WriteOnly);
+        script.write("#!/bin/sh\necho \"probe toast for $OMASCRIBE_TITLE\"\n");
+        script.close();
+        QFile::setPermissions(script.fileName(), QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+        qputenv("OMASCRIBE_PLUGINS_DIR", pluginsDir.path().toUtf8());
+    }
     QGuiApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("willem.com"));
     QQuickStyle::setStyle(QStringLiteral("Material"));
@@ -360,7 +426,23 @@ static int runGridProbe(int argc, char *argv[])
     std::fprintf(stdout, "zen: chip pixels %d -> %d, title pixels %d, fullscreen %s\n",
                  chipBefore, chipZen, titleZen, zen.width() > beforeZen.width() ? "grew" : "same size");
 
-    const bool ok = gridOk && textOk && clickOk && zenOk;
+    // Plugin chip: present, and running it shows the toast pill with the script's line.
+    QQuickItem *toastPill = window->findChild<QQuickItem *>(QStringLiteral("toastPill"));
+    const bool chipPresent = backend.plugins()->rowCount() == 1;
+    QString toastText;
+    QObject::connect(&backend, &Backend::toast, [&](const QString &m, int, bool) { toastText = m; });
+    backend.runPlugin(QStringLiteral("probe"));
+    QElapsedTimer waitToast;
+    waitToast.start();
+    while (toastText.isEmpty() && waitToast.elapsed() < 5000)
+        QCoreApplication::processEvents(QEventLoop::WaitForMoreEvents, 100);
+    settle(300);
+    const bool pluginOk = chipPresent && toastText.startsWith(QStringLiteral("probe toast for"))
+        && toastPill && toastPill->opacity() > 0.9;
+    std::fprintf(stdout, "plugin: chips %d, toast \"%s\", pill %s\n", backend.plugins()->rowCount(),
+                 qUtf8Printable(toastText), toastPill && toastPill->opacity() > 0.9 ? "visible" : "hidden");
+
+    const bool ok = gridOk && textOk && clickOk && zenOk && pluginOk;
     std::fprintf(stdout, ok ? "window probe ok\n" : "window probe FAILED\n");
     return ok ? 0 : 1;
 }

@@ -60,6 +60,15 @@ The Framework stylus has two barrel buttons. Firmware defaults, which Omascribe 
 - **Lower button** (nearest the tip): eraser. Hold it and write to erase. Tap it in hover to toggle the eraser tool so you can keep erasing without holding.
 - **Upper button**: reserved. While it is held the tip does nothing. It used to pan; scrolling is two fingers only now.
 
+## Plugins
+
+Per-person, per-install buttons that live outside the source tree, in
+`~/.config/omascribe/plugins/<id>/`. Each is a chip left of Export: it saves the note, exports it
+in the format the plugin asks for (PDF by default), runs the plugin's program with that file and a
+small environment (title, dates, counts, typed text, host), and shows the program's last line as a
+toast. Credentials stay in the plugin directory. The contract and an example that mails the note
+as a PDF are in [`plugins/`](plugins/README.md).
+
 ## Live agent readout
 
 While Omascribe is open, the current note is mirrored for agents (no screenshot of

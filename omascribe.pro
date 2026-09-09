@@ -1,4 +1,4 @@
-QT += core gui qml quick quickcontrols2 quickdialogs2 dbus svg
+QT += core gui network qml quick quickcontrols2 quickdialogs2 dbus svg
 
 CONFIG += c++17 release
 TARGET = omascribe
@@ -13,6 +13,7 @@ HEADERS += \
     src/ink.h \
     src/inkcanvas.h \
     src/palette.h \
+    src/plugins.h \
     src/store.h \
     src/systemtheme.h
 
@@ -23,6 +24,7 @@ SOURCES += \
     src/exporter.cpp \
     src/ink.cpp \
     src/inkcanvas.cpp \
+    src/plugins.cpp \
     src/store.cpp \
     src/systemtheme.cpp
 

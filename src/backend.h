@@ -1,6 +1,7 @@
 #pragma once
 
 #include "document.h"
+#include "plugins.h"
 #include "store.h"
 
 #include <QColor>
@@ -24,12 +25,16 @@ class Backend : public QObject {
     Q_PROPERTY(QString paperColor READ paperColor NOTIFY themeColorsChanged)
     Q_PROPERTY(QString gridColor READ gridColor NOTIFY themeColorsChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
+    Q_PROPERTY(PluginModel *plugins READ plugins CONSTANT)
+    Q_PROPERTY(QString version READ version CONSTANT)
 
 public:
     explicit Backend(QObject *parent = nullptr);
     ~Backend() override;
 
     NoteStore *notes() const { return m_notes; }
+    PluginModel *plugins() const { return m_plugins; }
+    QString version() const;
     Document *document() const { return m_document; }
     int currentIndex() const { return m_currentIndex; }
 
@@ -51,6 +56,7 @@ public:
     Q_INVOKABLE void deleteCurrent();
     Q_INVOKABLE void saveNow();
     Q_INVOKABLE void exportNote(const QUrl &url);
+    Q_INVOKABLE void runPlugin(const QString &id);
     Q_INVOKABLE QUrl suggestedExportUrl() const;
     Q_INVOKABLE QVariantMap windowGeometry() const;
     Q_INVOKABLE void saveWindowGeometry(int x, int y, int width, int height, bool maximized);
@@ -62,6 +68,8 @@ signals:
     void textScaleChanged();
     void themeColorsChanged();
     void statusChanged();
+    // A message that must be noticed: shown as a pill for `ms` milliseconds.
+    void toast(const QString &message, int ms, bool ok);
 
 private:
     void loadOmarchyTheme();
@@ -75,6 +83,7 @@ private:
     QString defaultNotePath(const QString &id) const;
 
     NoteStore *m_notes = nullptr;
+    PluginModel *m_plugins = nullptr;
     Document *m_document = nullptr;
     int m_currentIndex = -1;
     bool m_darkMode = true;
