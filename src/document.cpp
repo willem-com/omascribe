@@ -206,9 +206,10 @@ TextBlock TextBlock::fromJson(const QJsonObject &obj)
 
 QFont TextBlock::font() const
 {
-    // The family resolves to Bold unless the weight is asked for explicitly.
+    // The packaged Bold file declares regular weight, so fontconfig hands out
+    // Bold for any weight; the style name is the only reliable selector.
     QFont f(QStringLiteral("iA Writer Quattro S"));
-    f.setWeight(QFont::Normal);
+    f.setStyleName(QStringLiteral("Regular"));
     f.setPixelSize(int(std::round(size)));
     return f;
 }

@@ -241,6 +241,8 @@ When Willem says "look at my drawing", read `current.json` then `current.png`. D
 
 ## Trap list
 
+- `ttf-ia-writer` ships `iAWriterQuattroS-Bold.ttf` with weight 80 (regular) in its metadata, so fontconfig and Qt return Bold for any weight request on "iA Writer Quattro S"; the whole chrome has been bold since 6 Sep for that reason. Typed text asks for `styleName "Regular"` (QFont and QML), which is the only selector that works; the self-test checks the resolved face. A user fontconfig rule tagging that file as bold would fix it machine-wide (omawrite too), not done.
+
 - A palm that touches before the pen used to start a finger pan the pen never cancelled: the next stroke ended as a dot and dragged the page (fixed 9 Sep 2026, see Input).
 - `TextInput` follows its caret even without focus, so a title wider than the field (compact window) showed only its tail. `autoScroll: activeFocus` now.
 

@@ -2,6 +2,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFont>
+#include <QFontInfo>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QJsonDocument>
@@ -99,6 +100,15 @@ static int runSelfTest()
         t->redo();
         ok = ok && t->title() == QStringLiteral("Ref   ");
         delete t;
+    }
+
+    // The text font must resolve to the Regular face (the Bold file lies about its weight).
+    {
+        const QFontInfo fi(TextBlock().font());
+        ok = ok && fi.styleName() == QStringLiteral("Regular");
+        if (fi.styleName() != QStringLiteral("Regular"))
+            std::fprintf(stderr, "text font resolved to %s %s\n",
+                         qUtf8Printable(fi.family()), qUtf8Printable(fi.styleName()));
     }
 
     // Typed text: margins from wide ink, one undo step per block of typing,
