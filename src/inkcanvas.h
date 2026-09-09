@@ -5,6 +5,7 @@
 #include <QColor>
 #include <QElapsedTimer>
 #include <QHash>
+#include <QPointF>
 #include <QQuickItem>
 #include <QString>
 #include <QTimer>
@@ -94,8 +95,10 @@ private:
     bool wantErase() const;
     void toggleEraserTool();
     void applyStylusButtons(const QTabletEvent *event);
-    void cancelFingerPan();
+    void notePen();            // stylus seen on any path: it owns the page for a while
     bool penNear() const;
+    bool penActive() const;
+    void userScroll(qreal dy); // the only way the page moves: two fingers or the wheel
     QPointF toDoc(QPointF local) const;
     void beginStroke(QPointF doc, float pressure);
     void extendStroke(QPointF doc, float pressure);
@@ -123,7 +126,6 @@ private:
 
     Stroke m_live;
     bool m_liveActive = false;
-    bool m_panning = false;
     bool m_movingSelection = false;
     bool m_lassoing = false;
     bool m_penDown = false;
@@ -138,7 +140,7 @@ private:
     QElapsedTimer m_clock;
     int m_touchMaxFingers = 0;
     bool m_touchMoved = false;
-    QPointF m_touchCentroid;
+    QHash<int, QPointF> m_touchLast;  // last position per touch id, for per-point deltas
     QElapsedTimer m_touchClock;
     bool m_hwEraser = false;
     bool m_upperDown = false;

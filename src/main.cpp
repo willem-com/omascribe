@@ -9,7 +9,11 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlError>
+#include <QEventLoop>
+#include <QImage>
 #include <QQuickStyle>
+#include <QQuickWindow>
+#include <QTimer>
 #include <QSurfaceFormat>
 #include <QTemporaryDir>
 #include <QUrl>
@@ -147,6 +151,71 @@ static int runSelfTest()
     return 0;
 }
 
+// --probe-grid [dir]: open the real window on a scratch data dir, grab it
+// before and after a user scroll, and check that the dot grid is hidden at rest
+// and visible during the scroll. Writes before.png / after.png into dir.
+static int runGridProbe(int argc, char *argv[])
+{
+    QTemporaryDir dataHome;
+    QTemporaryDir configHome;
+    qputenv("XDG_DATA_HOME", dataHome.path().toUtf8());
+    qputenv("XDG_CONFIG_HOME", configHome.path().toUtf8());
+    QGuiApplication app(argc, argv);
+    app.setOrganizationName(QStringLiteral("willem.com"));
+    QQuickStyle::setStyle(QStringLiteral("Material"));
+    qmlRegisterType<InkCanvas>("Omascribe", 1, 0, "InkCanvas");
+    qmlRegisterUncreatableType<Document>("Omascribe", 1, 0, "Document",
+                                         QStringLiteral("Created by Backend"));
+    Backend backend(&app);
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.load(QUrl(QStringLiteral("qrc:/Main.qml")));
+    auto *window = engine.rootObjects().isEmpty()
+        ? nullptr : qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    auto *canvas = window ? window->findChild<InkCanvas *>(QStringLiteral("canvas")) : nullptr;
+    if (!window || !canvas) {
+        std::fprintf(stderr, "probe: no window or canvas\n");
+        return 1;
+    }
+    window->resize(1280, 820);
+    const auto settle = [&](int ms) {
+        QEventLoop loop;
+        QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+        loop.exec();
+    };
+    const auto countInk = [&](const QImage &img) {
+        const qreal dpr = window->devicePixelRatio();
+        const QColor paper = canvas->paperColor();
+        int n = 0;
+        for (int y = int(250 * dpr); y < int(450 * dpr) && y < img.height(); ++y)
+            for (int x = int(500 * dpr); x < int(900 * dpr) && x < img.width(); ++x)
+                if (img.pixelColor(x, y) != paper)
+                    ++n;
+        return n;
+    };
+    const QString dir = argc > 2 ? QString::fromLocal8Bit(argv[2]) : QString();
+    settle(700);
+    const QImage before = window->grabWindow();
+    const int atRest = countInk(before);
+    canvas->scrollBy(60);
+    settle(120);
+    const QImage after = window->grabWindow();
+    const int scrolling = countInk(after);
+    settle(1300);
+    const QImage later = window->grabWindow();
+    const int faded = countInk(later);
+    if (!dir.isEmpty()) {
+        before.save(dir + QStringLiteral("/before.png"));
+        after.save(dir + QStringLiteral("/after.png"));
+        later.save(dir + QStringLiteral("/later.png"));
+    }
+    std::fprintf(stdout, "grid pixels: at rest %d, scrolling %d, 1.3 s later %d; viewY %g\n",
+                 atRest, scrolling, faded, canvas->viewY());
+    const bool ok = atRest == 0 && scrolling > 50 && faded == 0 && canvas->viewY() > 0;
+    std::fprintf(stdout, ok ? "grid probe ok\n" : "grid probe FAILED\n");
+    return ok ? 0 : 1;
+}
+
 int main(int argc, char *argv[])
 {
     // Ink is drawn as scene-graph triangles; MSAA gives them their smooth edge.
@@ -165,6 +234,9 @@ int main(int argc, char *argv[])
         QGuiApplication app(argc, argv);
         return runSelfTest();
     }
+
+    if (argc > 1 && QByteArray(argv[1]) == QByteArrayLiteral("--probe-grid"))
+        return runGridProbe(argc, argv);
 
     if (argc > 1 && QByteArray(argv[1]) == QByteArrayLiteral("--readout")) {
         const QString path = QDir::homePath() + QStringLiteral("/.local/share/omascribe/current.json");

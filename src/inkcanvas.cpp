@@ -32,13 +32,15 @@ namespace {
 constexpr float kMinStep = 0.05f;
 constexpr float kEraserRadius = 18.f;
 constexpr qreal kAngleStep = 15.0;
+constexpr qreal kTapTravel = 24.0;      // a tap that moves more than this is a drag
+constexpr qreal kBottomRoom = 480.0;    // blank paper the user may scroll below the ink
 }
 
 InkCanvas::InkCanvas(QQuickItem *parent)
     : QQuickItem(parent)
 {
     setFlag(ItemHasContents, true);
-    setAcceptedMouseButtons(Qt::LeftButton | Qt::MiddleButton);
+    setAcceptedMouseButtons(Qt::LeftButton);
     setAcceptTouchEvents(true);
     setKeepTouchGrab(true);
     setAcceptHoverEvents(true);
@@ -81,9 +83,9 @@ void InkCanvas::setDocument(Document *document)
             update();
         });
         connect(m_document, &Document::selectionChanged, this, [this]() { update(); });
+        // Content changes never move the page (no clamp here): scrolling is manual.
         connect(m_document, &Document::geometryChanged, this, [this]() {
             emit documentHeightChanged();
-            clampView();
             update();
         });
     }
@@ -491,7 +493,7 @@ void InkCanvas::zoomReset()
 
 void InkCanvas::scrollBy(qreal dy)
 {
-    setViewY(m_viewY + dy);
+    userScroll(dy);
 }
 
 namespace {
@@ -544,39 +546,24 @@ PointerInfo inspectPointer(const QPointerEvent *event)
 
 void InkCanvas::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::MiddleButton) {
-        m_panning = true;
-        m_lastLocal = event->position();
-        event->accept();
-        return;
-    }
     const PointerInfo info = inspectPointer(event);
+    if (info.kind == Pointer::Pen)
+        notePen();
     pointerDown(event->position(), info.pressure, info.kind, info.eraser);
     event->accept();
 }
 
 void InkCanvas::mouseMoveEvent(QMouseEvent *event)
 {
-    if (m_panning) {
-        const QPointF delta = event->position() - m_lastLocal;
-        m_lastLocal = event->position();
-        revealGrid();
-        setViewY(m_viewY - delta.y());
-        event->accept();
-        return;
-    }
     const PointerInfo info = inspectPointer(event);
+    if (info.kind == Pointer::Pen)
+        notePen();
     pointerMove(event->position(), info.pressure, info.kind);
     event->accept();
 }
 
 void InkCanvas::mouseReleaseEvent(QMouseEvent *event)
 {
-    if (m_panning && event->button() == Qt::MiddleButton) {
-        m_panning = false;
-        event->accept();
-        return;
-    }
     pointerUp(event->position(), Pointer::Mouse);
     event->accept();
 }
@@ -588,33 +575,48 @@ void InkCanvas::wheelEvent(QWheelEvent *event)
         dy = -event->pixelDelta().y();
     else
         dy = -event->angleDelta().y() * 0.8;
-    revealGrid();
-    setViewY(m_viewY + dy);
+    userScroll(dy);
     event->accept();
 }
 
-// The pen owns the page while it is down or hovering: a palm that lands
-// then is ignored. Before 9 Sep 2026 a palm that touched first started a
-// finger pan the pen never cancelled, so the next stroke became a dot and
-// dragged the page instead.
+// The stylus reaches this item as synthesized mouse events carrying the
+// stylus device (Qt Quick does not hand QTabletEvent to items), and possibly
+// as tablet events too. Every path calls notePen(), so touch knows the pen is
+// about, whichever way it arrived.
+void InkCanvas::notePen()
+{
+    m_penNear = true;
+    m_penClock.restart();
+}
+
 bool InkCanvas::penNear() const
 {
     return m_penNear && m_penClock.isValid() && m_penClock.elapsed() < 1500;
 }
 
-void InkCanvas::cancelFingerPan()
+bool InkCanvas::penActive() const
 {
-    if (m_panning && m_activePointer == Pointer::Finger) {
-        m_panning = false;
-        m_activePointer = Pointer::None;
-    }
+    return m_penDown || m_liveActive || m_activePointer == Pointer::Pen || penNear();
 }
 
+// Scrolling is always the user's gesture: two fingers on the glass, or the
+// wheel (a touchpad's two-finger scroll). Nothing else moves the page.
+void InkCanvas::userScroll(qreal dy)
+{
+    revealGrid();
+    setViewY(m_viewY + dy);
+}
+
+// Touch: two fingers moving together scroll the page. One finger (a palm, a
+// stray touch) does nothing at all. Two-finger tap undoes, three-finger tap
+// redoes. While the pen is down or hovering, touch is ignored outright.
+// The pan uses per-point deltas of points seen in the previous event, so a
+// palm point that flickers in and out cannot jolt the page.
 void InkCanvas::touchEvent(QTouchEvent *event)
 {
     event->accept();
-    if (m_penDown || penNear()) {
-        cancelFingerPan();
+    if (penActive()) {
+        m_touchLast.clear();
         m_touchMaxFingers = 0;
         m_touchMoved = false;
         return;
@@ -622,83 +624,70 @@ void InkCanvas::touchEvent(QTouchEvent *event)
 
     int down = 0;
     qreal travel = 0;
-    QPointF centroid;
+    qreal dySum = 0;
+    int dyCount = 0;
+    QHash<int, QPointF> now;
     for (const QEventPoint &pt : event->points()) {
         travel = std::max(travel, QLineF(pt.pressPosition(), pt.position()).length());
         if (pt.state() == QEventPoint::Released)
             continue;
-        centroid += pt.position();
         ++down;
+        now.insert(pt.id(), pt.position());
+        const auto it = m_touchLast.constFind(pt.id());
+        if (it != m_touchLast.constEnd()) {
+            dySum += pt.position().y() - it->y();
+            ++dyCount;
+        }
     }
-    if (down > 0)
-        centroid /= down;
-    if (travel > 32)
-        m_touchMoved = true;
 
     if (event->type() == QEvent::TouchBegin) {
-        m_touchMaxFingers = std::max(1, down);
-        m_touchMoved = travel > 32;
-        m_touchCentroid = centroid;
+        m_touchMaxFingers = down;
+        m_touchMoved = false;
         m_touchClock.restart();
-        if (down == 1)
-            pointerDown(event->points().first().position(), 0.8f, Pointer::Finger, false);
+        m_touchLast = now;
         return;
     }
-
     if (event->type() == QEvent::TouchCancel) {
-        if (m_panning)
-            pointerUp(m_lastLocal, Pointer::Finger);
+        m_touchLast.clear();
         m_touchMaxFingers = 0;
         m_touchMoved = false;
-        m_panning = false;
         return;
     }
 
     m_touchMaxFingers = std::max(m_touchMaxFingers, down);
+    if (travel > kTapTravel)
+        m_touchMoved = true;
 
     if (event->type() == QEvent::TouchUpdate) {
-        if (m_touchMaxFingers >= 2 && m_panning) {
-            m_panning = false;
-            m_activePointer = Pointer::None;
-        }
-        if (down >= 2) {
-            if (!m_touchCentroid.isNull() && m_touchMoved) {
-                revealGrid();
-                setViewY(m_viewY - (centroid.y() - m_touchCentroid.y()));
-            }
-            m_touchCentroid = centroid;
-            return;
-        }
-        if (down == 1 && m_touchMaxFingers == 1)
-            pointerMove(event->points().first().position(), 0.8f, Pointer::Finger);
+        if (down >= 2 && dyCount >= 2 && m_touchMoved)
+            userScroll(-dySum / dyCount);
+        m_touchLast = now;
         return;
     }
 
-    // TouchEnd: last finger lifted. Two-finger tap = undo, three-finger tap = redo.
+    // TouchEnd: the last finger lifted.
     if (m_touchMaxFingers >= 2 && !m_touchMoved && m_touchClock.isValid()
         && m_touchClock.elapsed() < 500 && m_document) {
         if (m_touchMaxFingers == 2)
             m_document->undo();
         else
             m_document->redo();
-    } else if (m_touchMaxFingers <= 1) {
-        const QPointF pos = event->points().isEmpty()
-            ? m_lastLocal
-            : event->points().first().position();
-        pointerUp(pos, Pointer::Finger);
-    } else {
-        m_panning = false;
-        m_activePointer = Pointer::None;
     }
+    m_touchLast.clear();
     m_touchMaxFingers = 0;
     m_touchMoved = false;
-    m_touchCentroid = QPointF();
 }
 
 void InkCanvas::hoverMoveEvent(QHoverEvent *event)
 {
     m_hovering = true;
     m_hoverDoc = toDoc(event->position());
+    if (const QPointingDevice *dev = event->pointingDevice()) {
+        if (dev->type() == QInputDevice::DeviceType::Stylus
+            || dev->pointerType() == QPointingDevice::PointerType::Pen
+            || dev->pointerType() == QPointingDevice::PointerType::Eraser)
+            notePen();
+    }
     update();
 }
 
@@ -762,9 +751,9 @@ void InkCanvas::toggleEraserTool()
 void InkCanvas::handleTablet(QTabletEvent *event)
 {
     const QPointF local = mapFromScene(event->scenePosition());
-    m_penClock.restart();
-    m_penNear = event->type() != QEvent::TabletLeaveProximity;
-    cancelFingerPan();
+    notePen();
+    if (event->type() == QEvent::TabletLeaveProximity)
+        m_penNear = false;
     applyStylusButtons(event);
     float pressure = float(event->pressure());
     const Qt::MouseButtons buttons = event->buttons();
@@ -793,22 +782,13 @@ void InkCanvas::handleTablet(QTabletEvent *event)
     }
 
     if (event->type() == QEvent::TabletPress) {
-        // Upper barrel: pan. Framework default is right-click; here it scrolls the page.
-        if (m_upperDown && !tip) {
-            m_panning = true;
-            m_lastLocal = local;
-            event->accept();
-            return;
-        }
-        // Lower barrel / eraser tool-type: hover press is a tap candidate.
-        if (m_lowerDown && !tip) {
+        // Barrel buttons never move the page. With the upper button held the tip is inert.
+        if ((m_upperDown || m_lowerDown) && !tip) {
             event->accept();
             return;
         }
         m_penDown = true;
         if (m_upperDown) {
-            m_panning = true;
-            m_lastLocal = local;
             event->accept();
             return;
         }
@@ -821,19 +801,9 @@ void InkCanvas::handleTablet(QTabletEvent *event)
         if (m_lowerDown && (local - m_lastLocal).manhattanLength() > 8)
             m_lowerMoved = true;
 
-        if (m_panning || m_upperDown) {
+        if (m_upperDown) {
             if (m_liveActive)
                 endStroke();
-            if (!m_panning) {
-                m_panning = true;
-                m_lastLocal = local;
-            }
-            const QPointF delta = local - m_lastLocal;
-            m_lastLocal = local;
-            if (delta.manhattanLength() > 1)
-                m_upperMoved = true;
-            revealGrid();
-            setViewY(m_viewY - delta.y());
             event->accept();
             return;
         }
@@ -844,7 +814,6 @@ void InkCanvas::handleTablet(QTabletEvent *event)
             update();
     } else if (event->type() == QEvent::TabletRelease) {
         if (event->button() == Qt::RightButton) {
-            m_panning = false;
             m_upperDown = false;
             event->accept();
             return;
@@ -859,7 +828,6 @@ void InkCanvas::handleTablet(QTabletEvent *event)
         }
         pointerUp(local, Pointer::Pen);
         m_penDown = false;
-        m_panning = false;
     }
     event->accept();
 }
@@ -870,9 +838,9 @@ void InkCanvas::pointerDown(QPointF local, float pressure, Pointer pointer, bool
     m_activePointer = pointer;
     m_lastLocal = local;
     m_pressDoc = toDoc(local);
-    const bool fingerPan = pointer == Pointer::Finger;
-    if (fingerPan) {
-        m_panning = true;
+    if (pointer == Pointer::Finger) {
+        // A single touch never does anything; two fingers are handled in touchEvent.
+        m_activePointer = Pointer::None;
         return;
     }
 
@@ -909,14 +877,8 @@ void InkCanvas::pointerDown(QPointF local, float pressure, Pointer pointer, bool
 
 void InkCanvas::pointerMove(QPointF local, float pressure, Pointer pointer)
 {
-    Q_UNUSED(pointer);
-    if (m_panning) {
-        const QPointF delta = local - m_lastLocal;
-        m_lastLocal = local;
-        revealGrid();
-        setViewY(m_viewY - delta.y());
+    if (pointer == Pointer::Finger)
         return;
-    }
     const QPointF doc = toDoc(local);
     m_hoverDoc = doc;
     m_hovering = true;
@@ -950,11 +912,6 @@ void InkCanvas::pointerUp(QPointF local, Pointer pointer)
 {
     Q_UNUSED(pointer);
     const QPointF doc = toDoc(local);
-    if (m_panning) {
-        m_panning = false;
-        m_activePointer = Pointer::None;
-        return;
-    }
     if (m_movingSelection) {
         if (m_document)
             m_document->endTranslate();
@@ -1051,9 +1008,12 @@ QColor InkCanvas::strokePaintColor(const Stroke &stroke) const
     return resolveColor(stroke.colorId, m_darkMode);
 }
 
+// The user may scroll until only kBottomRoom of blank paper remains below the
+// page end, which puts the last line of ink at the top of the viewport.
 void InkCanvas::clampView()
 {
-    const qreal maxY = std::max(0.0, documentHeight() - height());
+    const qreal docH = documentHeight();
+    const qreal maxY = std::max({0.0, docH - height(), docH - kBottomRoom});
     const qreal clamped = std::clamp(m_viewY, 0.0, maxY);
     if (!qFuzzyCompare(clamped, m_viewY)) {
         m_viewY = clamped;

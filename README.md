@@ -10,7 +10,7 @@ C++), same quiet chrome, same follow-the-desktop light and dark.
 
 - Infinite page on the vertical axis. The paper grows as you write down it, but never scrolls on its own.
 - Plain paper. The dot grid appears only while you scroll, then fades.
-- Fineliner with pressure. Finger pans. Wheel pans. Palm is ignored while the pen is down.
+- Fineliner with pressure. Two fingers scroll. Wheel scrolls. One finger does nothing, so a palm cannot move the page. Touch is ignored while the pen is down or hovering.
 - Eraser removes whole strokes. Lasso selects and moves. Ruler snaps a stroke to 15 degree lines.
 - Notes live as `.omascribe` JSON under `~/.local/share/omascribe/notes/`. Autosave.
 - Inks are named (`ink`, `blue`, `red`, `gray`) and resolved against the paper, so a theme
@@ -38,7 +38,7 @@ Needs `qt6-base`, `qt6-declarative`, `xdg-desktop-portal`. `qmake6` and `g++` do
 
 ## Use
 
-- Pen draws. Finger or two-finger / wheel pans. Middle-mouse pans at a desk.
+- Pen draws. Two fingers or the wheel scroll. Nothing else moves the page, ever.
 - `P` pen, `E` eraser, `V` select, `L` ruler
 - `Ctrl+N` new note, `Ctrl+E` export PDF or SVG, `Ctrl+Z` undo, `Ctrl+Shift+Z` redo
 - Two-finger tap undoes, three-finger tap redoes
@@ -54,7 +54,7 @@ hundred KB. The original note is not replaced.
 The Framework stylus has two barrel buttons. Firmware defaults, which Omascribe follows:
 
 - **Lower button** (nearest the tip): eraser. Hold it and write to erase. Tap it in hover to toggle the eraser tool so you can keep erasing without holding.
-- **Upper button**: pan the page (hold and move). Firmware calls this right-click; on a note that is the useful equivalent of a hand tool.
+- **Upper button**: reserved. While it is held the tip does nothing. It used to pan; scrolling is two fingers only now.
 
 ## Live agent readout
 

@@ -132,6 +132,7 @@ ApplicationWindow {
 
         InkCanvas {
             id: canvas
+            objectName: "canvas"
             anchors.fill: parent
             anchors.leftMargin: (!win.compact && win.sidebarOpen) ? win.scaledSize(280) : 0
             document: backend.document
@@ -580,7 +581,7 @@ ApplicationWindow {
         standardButtons: Dialog.Close
         anchors.centerIn: parent
         contentItem: Label {
-            text: "Pen draws. Finger pans. Wheel pans.\nLower stylus button  Eraser (hold, or tap to toggle)\nUpper stylus button  Pan\nTwo-finger tap  Undo\nThree-finger tap  Redo\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nDelete  Delete selection\nF11  Fullscreen"
+            text: "Pen draws. Two fingers scroll. Wheel scrolls.\nOne finger does nothing.\nLower stylus button  Eraser (hold, or tap to toggle)\nTwo-finger tap  Undo\nThree-finger tap  Redo\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nDelete  Delete selection\nF11  Fullscreen"
             lineHeight: 1.45
         }
     }

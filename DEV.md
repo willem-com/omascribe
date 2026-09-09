@@ -139,14 +139,18 @@ Paper in the app follows Omarchy `~/.local/state/omarchy/current/theme/colors.to
 
 ## Input
 
-Pen draws. Finger pans. Wheel pans. Middle-mouse pans. Palm is ignored while the pen is down or hovering (`m_penDown` / `penNear()` eat touch; `penNear` expires 1.5 s after the last tablet event in case a leave-proximity is missed). Any tablet event also cancels a finger pan in progress, so a palm that lands before the pen cannot turn the next stroke into a page drag.
+Pen draws. **Two fingers scroll. The wheel scrolls. Nothing else moves the page** (Willem, 9 Sep 2026: "scrolling is *always* manual", "scroll only with two fingers"). One finger does nothing. Middle mouse does nothing. The stylus upper button does nothing (the tip is inert while it is held). The page never follows the pen and content changes never re-clamp the view.
+
+How the stylus arrives (found 9 Sep 2026 from the journal): Qt Quick does not hand `QTabletEvent` to items, so the Framework stylus reaches `InkCanvas` as synthesized **mouse events carrying the stylus `QPointingDevice`** (pressure included; `inspectPointer` reads it). The `handleTablet` path is kept in case a Qt version delivers tablet events, but nothing may depend on it alone. Consequence of the old code: `m_penDown` was only set on the tablet path, so it was never true and touch was never gated by the pen. A palm was a one-finger pan and the page moved while writing.
+
+Now every stylus path (mouse press/move, hover, tablet) calls `notePen()`; `penActive()` is true while the pen is down, a stroke is live, or the pen was seen in the last 1.5 s. Touch is dropped outright while `penActive()`. Two-finger pan uses per-touch-id deltas of points seen in the previous event (`m_touchLast`), so a palm point flickering in and out cannot jolt the page. Clamp: `maxY = max(0, docH - height, docH - 480)`, so the last ink can be scrolled to the top of the viewport; the clamp runs only on user scroll, resize and note switch.
 
 ### Framework stylus buttons
 
 Official booklet: two programmable barrel buttons.
 
 - **Lower** (nearest the tip): eraser. Linux: tool type flips to `BTN_TOOL_RUBBER`. Hold and write to erase. Hover-tap toggles the eraser tool so you can keep erasing without holding.
-- **Upper**: right-click in firmware (`BTN_STYLUS`). In Omascribe that is pan (hold and move). Right-click is useless on a note.
+- **Upper**: right-click in firmware (`BTN_STYLUS`). Reserved; it used to pan, scrolling is two fingers only now.
 
 Evdev node `ILIT2901:00 222A:5539 Stylus`: `BTN_TOOL_PEN`, `BTN_TOOL_RUBBER`, `BTN_TOUCH`, `BTN_STYLUS`, `BTN_STYLUS2`, pressure, tilt.
 
@@ -160,8 +164,9 @@ Hidden while writing. Any user scroll (wheel, finger, stylus upper button, middl
 
 ### Gestures
 
-- Two-finger tap, little movement, under 500 ms: undo
-- Two-finger drag: pan
+- Two-finger tap, little movement (under 24 px), under 500 ms: undo
+- Two-finger drag: scroll (the only touch scroll)
+- One finger: nothing
 - Three-finger tap: redo (Hyprland may steal three-finger for workspaces)
 - `Ctrl+Z` / `Ctrl+Shift+Z`, toolbar arrows
 
@@ -203,11 +208,12 @@ When Willem says "look at my drawing", read `current.json` then `current.png`. D
 3. Named inks in the file, resolved at draw time.
 4. Working store is JSON vectors, not a PDF.
 5. Two-finger tap is undo, not pan. Dragging two fingers still pans.
-6. Lower stylus button is eraser (Framework default). Upper is pan, not a desktop right-click menu.
+6. Lower stylus button is eraser (Framework default). Upper does not pan and is not a desktop right-click menu.
 7. Delete goes to `trash/`, never straight to unlink.
 8. Export is one filled outline path per stroke (the reflection page went from 2.4 MB to well under 300 KB); do not return to a polygon plus circle per segment.
 9. Scrolling is always manual. The page grows under the pen but never follows it (the old `autoGrowAndFollow` nudge near the bottom edge is gone, 9 Sep 2026). Do not add auto-scroll.
-10. Dot grid only during a user scroll; plain paper otherwise.
+10. Dot grid only during a user scroll; plain paper otherwise. `omascribe --probe-grid [dir]` opens the real window on scratch dirs, grabs before/during/after a scroll and checks hidden / visible / faded (also writes the PNGs). Run it after touching the scene graph.
+11. One finger never moves the page. Scrolling is two fingers or the wheel, full stop.
 
 ## Open / next
 
@@ -242,6 +248,8 @@ Bezier fitting or point thinning to the ink path.
 ## Session 9 Sep 2026 (Claude)
 
 Willem, in a half-width tiled window (600 x 750, compact mode): "scrolling is acting weird and I cannot see the document's title". Found: the live note's title carried 239 trailing spaces (source unknown, likely a held key while the field had focus), each a separate undo step, and the title field scrolled to the caret at the end so only blank showed. And the palm-first pan bug above. Changes: title field only auto-scrolls while editing and clips; consecutive title edits share one undo step; titles are trimmed on save, load, list and readout; touch is ignored while the pen hovers and any tablet event cancels a finger pan. Self-test covers the title behaviour. App restarted via `hyprctl dispatch closewindow` so it quit cleanly.
+
+Second round, same day: Willem reported the page still moving while writing, no dots even on scroll, and no way to keep the writing in the upper half. Root cause: the stylus arrives as mouse events (see Input), so the pen never gated touch; a palm was a one-finger pan. Rewrote the touch model (two fingers only, per-id deltas, pen gating on every path), removed every other scroll source, dropped the content-change clamp and gave the clamp 480 px of room below the ink. Verified the dot reveal renders with `--probe-grid` (0 / 211 / 0 pixels).
 
 ## Session 7 Sep 2026 (Claude)
 
