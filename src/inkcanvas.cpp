@@ -567,11 +567,32 @@ void InkCanvas::wheelEvent(QWheelEvent *event)
     event->accept();
 }
 
+// The pen owns the page while it is down or hovering: a palm that lands
+// then is ignored. Before 9 Sep 2026 a palm that touched first started a
+// finger pan the pen never cancelled, so the next stroke became a dot and
+// dragged the page instead.
+bool InkCanvas::penNear() const
+{
+    return m_penNear && m_penClock.isValid() && m_penClock.elapsed() < 1500;
+}
+
+void InkCanvas::cancelFingerPan()
+{
+    if (m_panning && m_activePointer == Pointer::Finger) {
+        m_panning = false;
+        m_activePointer = Pointer::None;
+    }
+}
+
 void InkCanvas::touchEvent(QTouchEvent *event)
 {
     event->accept();
-    if (m_penDown)
+    if (m_penDown || penNear()) {
+        cancelFingerPan();
+        m_touchMaxFingers = 0;
+        m_touchMoved = false;
         return;
+    }
 
     int down = 0;
     qreal travel = 0;
@@ -713,6 +734,9 @@ void InkCanvas::toggleEraserTool()
 void InkCanvas::handleTablet(QTabletEvent *event)
 {
     const QPointF local = mapFromScene(event->scenePosition());
+    m_penClock.restart();
+    m_penNear = event->type() != QEvent::TabletLeaveProximity;
+    cancelFingerPan();
     applyStylusButtons(event);
     float pressure = float(event->pressure());
     const Qt::MouseButtons buttons = event->buttons();

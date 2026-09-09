@@ -166,6 +166,10 @@ ApplicationWindow {
             font.family: "iA Writer Quattro S"
             font.pixelSize: win.scaledSize(28)
             selectByMouse: true
+            clip: true
+            // Only follow the caret while editing. Otherwise a title wider than
+            // the field (compact window) scrolls to its tail and looks empty.
+            autoScroll: activeFocus
             onTextChanged: {
                 if (backend.document && backend.document.title !== text)
                     backend.document.title = text;

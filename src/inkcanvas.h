@@ -92,6 +92,8 @@ private:
     bool wantErase() const;
     void toggleEraserTool();
     void applyStylusButtons(const QTabletEvent *event);
+    void cancelFingerPan();
+    bool penNear() const;
     QPointF toDoc(QPointF local) const;
     void beginStroke(QPointF doc, float pressure);
     void extendStroke(QPointF doc, float pressure);
@@ -122,6 +124,8 @@ private:
     bool m_movingSelection = false;
     bool m_lassoing = false;
     bool m_penDown = false;
+    bool m_penNear = false;          // stylus in proximity (hovering or down)
+    QElapsedTimer m_penClock;        // last tablet event, guards a missed leave
     Pointer m_activePointer = Pointer::None;
     QPointF m_lastLocal;
     QPointF m_pressDoc;

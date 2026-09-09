@@ -97,7 +97,7 @@ void NoteStore::reload()
             continue;
         NoteRecord rec;
         rec.id = o.value(QStringLiteral("id")).toString();
-        rec.title = o.value(QStringLiteral("title")).toString();
+        rec.title = o.value(QStringLiteral("title")).toString().trimmed();
         rec.path = info.absoluteFilePath();
         rec.created = QDateTime::fromString(o.value(QStringLiteral("created")).toString(),
                                             Qt::ISODateWithMs);

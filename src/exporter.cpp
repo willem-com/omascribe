@@ -180,7 +180,7 @@ bool writeAgentReadout(const Document *doc, const QString &dir)
     o.insert(QStringLiteral("format"), QStringLiteral("omascribe-readout"));
     o.insert(QStringLiteral("version"), 1);
     o.insert(QStringLiteral("id"), doc->id());
-    o.insert(QStringLiteral("title"), doc->title());
+    o.insert(QStringLiteral("title"), doc->title().trimmed());
     o.insert(QStringLiteral("path"), doc->filePath());
     o.insert(QStringLiteral("preview"), pngPath);
     o.insert(QStringLiteral("svg"), svgPath);

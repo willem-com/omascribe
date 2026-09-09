@@ -139,7 +139,7 @@ Paper in the app follows Omarchy `~/.local/state/omarchy/current/theme/colors.to
 
 ## Input
 
-Pen draws. Finger pans. Wheel pans. Middle-mouse pans. Palm is ignored while the pen is down (`m_penDown` eats touch).
+Pen draws. Finger pans. Wheel pans. Middle-mouse pans. Palm is ignored while the pen is down or hovering (`m_penDown` / `penNear()` eat touch; `penNear` expires 1.5 s after the last tablet event in case a leave-proximity is missed). Any tablet event also cancels a finger pan in progress, so a palm that lands before the pen cannot turn the next stroke into a page drag.
 
 ### Framework stylus buttons
 
@@ -207,7 +207,6 @@ When Willem says "look at my drawing", read `current.json` then `current.png`. D
 
 - Hover-tap of the lower button to toggle eraser may be flaky: firmware often only sends eraser tool-type while the button is held. Hold-to-erase is the reliable gesture. Confirm on device.
 - Three-finger redo vs Hyprland workspace gestures.
-- Title edits currently push one undo step per keystroke.
 - No zoom, no typed text on the page, no layers, no cloud sync.
 - Latency: committed ink no longer costs CPU per frame. What remains is Wayland + panel + the live stroke. If it still feels slow in power-saver, compare `OMASCRIBE_MSAA=0` and check the readout timer is not firing mid-write.
 - Trash has no UI and no auto-purge. Add a "Trash" section in the sidebar if it ever fills up.
@@ -215,6 +214,9 @@ When Willem says "look at my drawing", read `current.json` then `current.png`. D
 - No git remote. If this should live on WillemFW, add one and push. Until then the bench copy is the source.
 
 ## Trap list
+
+- A palm that touches before the pen used to start a finger pan the pen never cancelled: the next stroke ended as a dot and dragged the page (fixed 9 Sep 2026, see Input).
+- `TextInput` follows its caret even without focus, so a title wider than the field (compact window) showed only its tail. `autoScroll: activeFocus` now.
 
 - `pkill -f omascribe` can kill the shell that contains that string. Kill by PID (`pgrep -x omascribe`).
 - QML `tool: toolModel.get(index).value` fought C++ `setTool` from the stylus. Canvas tool is the source of truth; the pill syncs from `onToolChanged`.
@@ -230,6 +232,10 @@ the app with `/etc/libinput/local-overrides.quirks` (`MatchName=ILIT2901:00
 re-added, so relogin). App side, `kMinStep` in `inkcanvas.cpp` went from 0.7
 to 0.05 logical px so no moving sample is dropped. Do not add smoothing,
 Bezier fitting or point thinning to the ink path.
+
+## Session 9 Sep 2026 (Claude)
+
+Willem, in a half-width tiled window (600 x 750, compact mode): "scrolling is acting weird and I cannot see the document's title". Found: the live note's title carried 239 trailing spaces (source unknown, likely a held key while the field had focus), each a separate undo step, and the title field scrolled to the caret at the end so only blank showed. And the palm-first pan bug above. Changes: title field only auto-scrolls while editing and clips; consecutive title edits share one undo step; titles are trimmed on save, load, list and readout; touch is ignored while the pen hovers and any tablet event cancels a finger pan. Self-test covers the title behaviour. App restarted via `hyprctl dispatch closewindow` so it quit cleanly.
 
 ## Session 7 Sep 2026 (Claude)
 

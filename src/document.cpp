@@ -181,14 +181,21 @@ void Document::setTitle(const QString &title)
 {
     if (m_title == title)
         return;
-    Edit e;
-    e.kind = EditKind::Title;
-    e.beforeTitle = m_title;
-    e.afterTitle = title;
+    const QString before = m_title;
     m_title = title;
     emit titleChanged();
     touchModifiedTime();
     setModified(true);
+    // Consecutive title edits share one undo step, so typing (or a stuck key)
+    // does not push the ink history out of the stack.
+    if (!m_undo.isEmpty() && m_undo.last().kind == EditKind::Title && m_redo.isEmpty()) {
+        m_undo.last().afterTitle = title;
+        return;
+    }
+    Edit e;
+    e.kind = EditKind::Title;
+    e.beforeTitle = before;
+    e.afterTitle = title;
     pushUndo(e);
 }
 
@@ -442,7 +449,7 @@ QJsonObject Document::toJson() const
     o.insert(QStringLiteral("format"), QStringLiteral("omascribe"));
     o.insert(QStringLiteral("version"), 1);
     o.insert(QStringLiteral("id"), m_id);
-    o.insert(QStringLiteral("title"), m_title);
+    o.insert(QStringLiteral("title"), m_title.trimmed());
     o.insert(QStringLiteral("created"), m_created.toUTC().toString(Qt::ISODateWithMs));
     o.insert(QStringLiteral("modified"), m_modifiedTime.toUTC().toString(Qt::ISODateWithMs));
     o.insert(QStringLiteral("height"), contentHeight());
@@ -459,7 +466,7 @@ Document *Document::fromJson(const QJsonObject &obj, QObject *parent)
     doc->m_id = obj.value(QStringLiteral("id")).toString();
     if (doc->m_id.isEmpty())
         doc->m_id = newId();
-    doc->m_title = obj.value(QStringLiteral("title")).toString();
+    doc->m_title = obj.value(QStringLiteral("title")).toString().trimmed();
     doc->m_created = QDateTime::fromString(obj.value(QStringLiteral("created")).toString(),
                                            Qt::ISODateWithMs);
     if (!doc->m_created.isValid())

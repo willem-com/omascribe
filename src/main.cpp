@@ -79,6 +79,20 @@ static int runSelfTest()
         ok = ok && dp.size() == 16 * 3 && !strokeOutline(dot).isEmpty();
     }
 
+    // Title: keystrokes share one undo step; trailing whitespace never reaches disk.
+    {
+        Document *t = Document::createNew();
+        t->setTitle(QStringLiteral("R"));
+        t->setTitle(QStringLiteral("Re"));
+        t->setTitle(QStringLiteral("Ref   "));
+        ok = ok && t->toJson().value(QStringLiteral("title")).toString() == QStringLiteral("Ref");
+        t->undo();
+        ok = ok && t->title().isEmpty() && !t->canUndo() && t->canRedo();
+        t->redo();
+        ok = ok && t->title() == QStringLiteral("Ref   ");
+        delete t;
+    }
+
     ok = ok && doc->canUndo();
     doc->undo();
     ok = ok && doc->strokeCount() == 0 && doc->canRedo();
