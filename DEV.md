@@ -294,6 +294,10 @@ re-added, so relogin). App side, `kMinStep` in `inkcanvas.cpp` went from 0.7
 to 0.05 logical px so no moving sample is dropped. Do not add smoothing,
 Bezier fitting or point thinning to the ink path.
 
+## Session 9 Sep 2026, afternoon (Claude)
+
+After the plugin system: hero screenshots (`docs/hero/`, see README), the willem.com post "Omascribe" (Manager config 148, ContentAsPost instance 76159, live 9 Sep 2026, EN + NL, https://willem.com/en/2026-09-09_omascribe/), and the two photo library copies of the hero shots. Trap met three times while Willem edited the post in the Manager: his editor form held a stale English copy and wrote it back on every save of the Dutch, undoing API writes; the proof copy `~/omascribe-post.md` on WillemBG is the intended text for both languages. Bench, install, plugin dir and notes all stay; nothing to tear down.
+
 ## Session 9 Sep 2026 (Claude)
 
 Willem, in a half-width tiled window (600 x 750, compact mode): "scrolling is acting weird and I cannot see the document's title". Found: the live note's title carried 239 trailing spaces (source unknown, likely a held key while the field had focus), each a separate undo step, and the title field scrolled to the caret at the end so only blank showed. And the palm-first pan bug above. Changes: title field only auto-scrolls while editing and clips; consecutive title edits share one undo step; titles are trimmed on save, load, list and readout; touch is ignored while the pen hovers and any tablet event cancels a finger pan. Self-test covers the title behaviour. App restarted via `hyprctl dispatch closewindow` so it quit cleanly.
