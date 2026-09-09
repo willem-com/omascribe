@@ -25,6 +25,10 @@ ApplicationWindow {
     readonly property color sidebarColor: darkMode ? Qt.darker(pageColor, 1.18) : "#efece3"
     readonly property real textScale: backend.textScale
     readonly property bool compact: width < 880
+    // Fullscreen is zen: no sidebar, no Notes/Export chips, the title scrolls
+    // with the page. Hyprland drops gaps and covers the bar for a fullscreen
+    // window, so asking for fullscreen is all the app has to do.
+    readonly property bool zen: visibility === Window.FullScreen
     property bool sidebarOpen: !compact
     // Id of the typed-text block being edited, "" when none.
     property string editingId: ""
@@ -84,8 +88,11 @@ ApplicationWindow {
             win.visibility = Window.Maximized;
     }
 
-    onClosing: backend.saveWindowGeometry(x, y, width, height,
-                                          visibility === Window.Maximized)
+    onClosing: {
+        if (!zen)
+            backend.saveWindowGeometry(x, y, width, height,
+                                       visibility === Window.Maximized);
+    }
 
     onCompactChanged: {
         if (compact)
@@ -154,7 +161,7 @@ ApplicationWindow {
             id: canvas
             objectName: "canvas"
             anchors.fill: parent
-            anchors.leftMargin: (!win.compact && win.sidebarOpen) ? win.scaledSize(280) : 0
+            anchors.leftMargin: (!win.compact && win.sidebarOpen && !win.zen) ? win.scaledSize(280) : 0
             document: backend.document
             paperColor: backend.paperColor
             gridColor: backend.gridColor
@@ -247,8 +254,9 @@ ApplicationWindow {
             anchors.top: parent.top
             anchors.left: canvas.left
             anchors.right: parent.right
-            anchors.topMargin: win.scaledSize(18)
-            anchors.leftMargin: win.scaledSize(win.compact ? 88 : 28)
+            // Fixed chrome in a window; part of the page in zen (scrolls with it).
+            anchors.topMargin: win.scaledSize(18) - (win.zen ? canvas.viewY : 0)
+            anchors.leftMargin: win.scaledSize(win.compact && !win.zen ? 88 : 28)
             anchors.rightMargin: win.scaledSize(100)
             text: backend.document ? backend.document.title : ""
             color: win.textColor
@@ -285,7 +293,7 @@ ApplicationWindow {
 
         Rectangle {
             id: notesChip
-            visible: win.compact
+            visible: win.compact && !win.zen
             z: 21
             anchors.left: parent.left
             anchors.top: parent.top
@@ -313,10 +321,12 @@ ApplicationWindow {
 
         Rectangle {
             id: exportChip
+            visible: !win.zen
             z: 21
-            anchors.right: parent.right
+            anchors.right: zenChip.left
             anchors.top: parent.top
             anchors.margins: win.scaledSize(12)
+            anchors.rightMargin: win.scaledSize(8)
             height: win.scaledSize(32)
             width: exportChipLabel.width + win.scaledSize(22)
             radius: height / 2
@@ -335,6 +345,28 @@ ApplicationWindow {
                 anchors.margins: -8
                 cursorShape: Qt.PointingHandCursor
                 onClicked: win.openExport()
+            }
+        }
+
+        // Fullscreen toggle, right of Export. Stays in zen so there is a way back.
+        Rectangle {
+            id: zenChip
+            z: 21
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: win.scaledSize(12)
+            height: win.scaledSize(32)
+            width: height
+            radius: height / 2
+            color: win.darkMode ? "#cc1a1a1a" : "#e6fffdf8"
+            border.color: win.darkMode ? "#333333" : "#ddd6c8"
+            opacity: win.zen ? 0.55 : 1
+            ToolGlyph {
+                anchors.centerIn: parent
+                glyph: win.zen ? "windowed" : "fullscreen"
+                tip: win.zen ? "Leave fullscreen (F11)" : "Fullscreen, zen (F11)"
+                ink: win.textColor
+                onClicked: win.toggleFullScreen()
             }
         }
 
@@ -530,7 +562,7 @@ ApplicationWindow {
         }
 
         Rectangle {
-            visible: win.compact && win.sidebarOpen
+            visible: win.compact && win.sidebarOpen && !win.zen
             anchors.fill: parent
             anchors.leftMargin: win.scaledSize(280)
             z: 35
@@ -548,7 +580,7 @@ ApplicationWindow {
             anchors.top: parent.top
             anchors.bottom: parent.bottom
             color: win.sidebarColor
-            visible: win.sidebarOpen
+            visible: win.sidebarOpen && !win.zen
             z: win.compact ? 40 : 10
             clip: true
 
@@ -670,7 +702,7 @@ ApplicationWindow {
         standardButtons: Dialog.Close
         anchors.centerIn: parent
         contentItem: Label {
-            text: "Pen draws. Two fingers scroll. Wheel scrolls.\nOne finger does nothing.\nLower stylus button  Eraser (hold, or tap to toggle)\nTwo-finger tap  Undo\nThree-finger tap  Redo\nOne-finger tap  Type text there (tap a block to edit it)\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nT  Text tool (click to type)\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nDelete  Delete selection\nF11  Fullscreen"
+            text: "Pen draws. Two fingers scroll. Wheel scrolls.\nOne finger does nothing.\nLower stylus button  Eraser (hold, or tap to toggle)\nTwo-finger tap  Undo\nThree-finger tap  Redo\nOne-finger tap  Type text there (tap a block to edit it)\nP  Pen\nE  Eraser\nV  Select\nL  Ruler\nT  Text tool (click to type)\nCtrl+N  New note\nCtrl+E  Export PDF or SVG\nCtrl+Z  Undo\nCtrl+Shift+Z  Redo\nDelete  Delete selection\nF11  Fullscreen (zen: no sidebar, no chips, title scrolls with the page)"
             lineHeight: 1.45
         }
     }

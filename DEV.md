@@ -212,6 +212,7 @@ When Willem says "look at my drawing", read `current.json` then `current.png`. D
 - Dark/light from the desktop portal, same as omawrite
 - Omarchy `colors.toml` for accent/background
 - Compact window (`width < 880`): Notes chip opens an overlay list. Wide: sidebar.
+- Zen (`win.zen`, i.e. `visibility === Window.FullScreen`, toggled by F11 or the round chip right of Export, 9 Sep 2026): sidebar, Notes chip and Export chip hidden; the title's top margin subtracts `canvas.viewY` so it scrolls as part of the page; the toggle chip stays at 55 % opacity as the way back. Geometry is not saved while fullscreen. Hyprland removes gaps and covers the bar for a real fullscreen window, so the app only requests fullscreen.
 - Title field blurs when the canvas is engaged (otherwise the caret stays after you start drawing)
 - Gymbal owns rotation. No extra tablet mapping in the app. Hyprland remaps the stylus to the transformed output.
 

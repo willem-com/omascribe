@@ -342,7 +342,25 @@ static int runGridProbe(int argc, char *argv[])
     std::fprintf(stdout, "mouse click: blocks %d, focus %s\n", doc ? doc->textCount() : -1,
                  clickOk ? "TextEdit" : "elsewhere");
 
-    const bool ok = gridOk && textOk && clickOk;
+    // Zen: fullscreen hides the Notes chip and lets the title scroll with the page.
+    const QImage beforeZen = window->grabWindow();
+    window->showFullScreen();
+    settle(500);
+    const QImage zen = window->grabWindow();
+    window->showNormal();
+    settle(200);
+    if (!dir.isEmpty())
+        zen.save(dir + QStringLiteral("/zen.png"));
+    const QRectF chipArea(12, 12, 90, 32);     // Notes chip (compact) or sidebar edge (wide)
+    const QRectF titleArea(150, 30, 120, 50);  // "Title" placeholder at rest, gone once scrolled in zen
+    const int chipBefore = countInkIn(beforeZen, chipArea);
+    const int chipZen = countInkIn(zen, chipArea);
+    const int titleZen = countInkIn(zen, titleArea);
+    const bool zenOk = chipBefore > 0 && chipZen == 0 && titleZen == 0;
+    std::fprintf(stdout, "zen: chip pixels %d -> %d, title pixels %d, fullscreen %s\n",
+                 chipBefore, chipZen, titleZen, zen.width() > beforeZen.width() ? "grew" : "same size");
+
+    const bool ok = gridOk && textOk && clickOk && zenOk;
     std::fprintf(stdout, ok ? "window probe ok\n" : "window probe FAILED\n");
     return ok ? 0 : 1;
 }
