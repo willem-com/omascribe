@@ -214,6 +214,7 @@ ApplicationWindow {
                     text: body
                     wrapMode: TextEdit.Wrap
                     font.family: "iA Writer Quattro S"
+                    font.weight: Font.Normal
                     font.pixelSize: size
                     color: win.resolvedInk("ink")
                     selectionColor: win.accentColor
