@@ -154,6 +154,10 @@ Qt maps `BTN_STYLUS` to `Qt::RightButton`, `BTN_STYLUS2` to `Qt::MiddleButton`, 
 
 The pen is not Bluetooth. It talks to the ILITEK digitizer. Flat battery was the first failure on this machine.
 
+### Dot grid
+
+Hidden while writing. Any user scroll (wheel, finger, stylus upper button, middle mouse) shows it at once, holds 650 ms, then fades over 400 ms (`revealGrid()` in `inkcanvas.cpp`, a `QSGOpacityNode` around the grid). The auto-follow scroll while writing near the bottom does not reveal it. Willem's request, 9 Sep 2026.
+
 ### Gestures
 
 - Two-finger tap, little movement, under 500 ms: undo

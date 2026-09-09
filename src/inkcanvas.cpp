@@ -46,6 +46,26 @@ InkCanvas::InkCanvas(QQuickItem *parent)
     blank.fill(Qt::transparent);
     setCursor(QCursor(blank, 0, 0));
     m_clock.start();
+
+    m_gridHold.setSingleShot(true);
+    m_gridHold.setInterval(650);
+    m_gridFade.setDuration(400);
+    m_gridFade.setStartValue(1.0);
+    m_gridFade.setEndValue(0.0);
+    m_gridFade.setEasingCurve(QEasingCurve::OutQuad);
+    connect(&m_gridHold, &QTimer::timeout, &m_gridFade, [this]() { m_gridFade.start(); });
+    connect(&m_gridFade, &QVariantAnimation::valueChanged, this, [this](const QVariant &v) {
+        m_gridOpacity = v.toReal();
+        update();
+    });
+}
+
+void InkCanvas::revealGrid()
+{
+    m_gridFade.stop();
+    m_gridOpacity = 1.0;
+    m_gridHold.start();
+    update();
 }
 
 void InkCanvas::setDocument(Document *document)
@@ -165,6 +185,7 @@ constexpr int kRingSegments = 28;
 struct CanvasNode : public QSGNode {
     QSGSimpleRectNode *paper = nullptr;
     QSGTransformNode *xform = nullptr;
+    QSGOpacityNode *gridWrap = nullptr;
     QSGGeometryNode *grid = nullptr;
     QSGNode *strokes = nullptr;
     QSGOpacityNode *liveWrap = nullptr;
@@ -260,7 +281,8 @@ QSGNode *InkCanvas::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         root->xform = new QSGTransformNode;
         root->appendChildNode(root->xform);
         root->grid = makeGeometryNode(QSGGeometry::DrawTriangles, m_gridColor);
-        root->xform->appendChildNode(root->grid);
+        root->gridWrap = wrap(root->grid);
+        root->xform->appendChildNode(root->gridWrap);
         root->strokes = new QSGNode;
         root->xform->appendChildNode(root->strokes);
         root->live = makeGeometryNode(QSGGeometry::DrawTriangles, Qt::black);
@@ -295,6 +317,8 @@ QSGNode *InkCanvas::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     }
 
     syncGrid(root->grid);
+    if (!qFuzzyCompare(root->gridWrap->opacity(), m_gridOpacity))
+        root->gridWrap->setOpacity(m_gridOpacity);
     syncStrokes(root->strokes);
 
     // Live stroke: rebuilt while the pen is down, hidden otherwise.
@@ -536,6 +560,7 @@ void InkCanvas::mouseMoveEvent(QMouseEvent *event)
     if (m_panning) {
         const QPointF delta = event->position() - m_lastLocal;
         m_lastLocal = event->position();
+        revealGrid();
         setViewY(m_viewY - delta.y());
         event->accept();
         return;
@@ -563,6 +588,7 @@ void InkCanvas::wheelEvent(QWheelEvent *event)
         dy = -event->pixelDelta().y();
     else
         dy = -event->angleDelta().y() * 0.8;
+    revealGrid();
     setViewY(m_viewY + dy);
     event->accept();
 }
@@ -636,8 +662,10 @@ void InkCanvas::touchEvent(QTouchEvent *event)
             m_activePointer = Pointer::None;
         }
         if (down >= 2) {
-            if (!m_touchCentroid.isNull() && m_touchMoved)
+            if (!m_touchCentroid.isNull() && m_touchMoved) {
+                revealGrid();
                 setViewY(m_viewY - (centroid.y() - m_touchCentroid.y()));
+            }
             m_touchCentroid = centroid;
             return;
         }
@@ -804,6 +832,7 @@ void InkCanvas::handleTablet(QTabletEvent *event)
             m_lastLocal = local;
             if (delta.manhattanLength() > 1)
                 m_upperMoved = true;
+            revealGrid();
             setViewY(m_viewY - delta.y());
             event->accept();
             return;
@@ -884,6 +913,7 @@ void InkCanvas::pointerMove(QPointF local, float pressure, Pointer pointer)
     if (m_panning) {
         const QPointF delta = local - m_lastLocal;
         m_lastLocal = local;
+        revealGrid();
         setViewY(m_viewY - delta.y());
         return;
     }

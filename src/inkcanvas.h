@@ -7,6 +7,8 @@
 #include <QHash>
 #include <QQuickItem>
 #include <QString>
+#include <QTimer>
+#include <QVariantAnimation>
 #include <QVector>
 
 class QSGGeometryNode;
@@ -100,6 +102,7 @@ private:
     void endStroke();
     void syncStrokes(QSGNode *parent);
     void syncGrid(QSGGeometryNode *node);
+    void revealGrid();
     void syncCursor(QSGGeometryNode *dot, QSGGeometryNode *ring);
     void invalidateStrokeNodes();
     void clampView();
@@ -157,6 +160,11 @@ private:
     const Document *m_nodesDocument = nullptr;
     int m_paletteEpoch = 0;
     bool m_strokesDirty = true;
+    // The dot grid is hidden while writing and shown only while the page is
+    // scrolled by the user; it holds briefly and fades out.
+    qreal m_gridOpacity = 0;
+    QTimer m_gridHold;
+    QVariantAnimation m_gridFade;
     qreal m_gridWidth = 0;
     qreal m_gridBottom = 0;
     QColor m_gridBuilt;
