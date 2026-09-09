@@ -12,6 +12,7 @@
 #include <QEventLoop>
 #include <QImage>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
@@ -312,7 +313,26 @@ static int runGridProbe(int argc, char *argv[])
                  doc && doc->textCount() ? qUtf8Printable(doc->textBlocks().at(0).text) : "",
                  typedPixels);
 
-    const bool ok = gridOk && textOk;
+    // A plain mouse click (pen tool, no drag) opens a block too.
+    {
+        if (focus)
+            focus->setFocus(false);
+        canvas->forceActiveFocus();
+        settle(80);
+        const QPointF local(canvas->width() * 0.5, canvas->height() * 0.8);
+        const QPointF scene = canvas->mapToScene(local);
+        QMouseEvent press(QEvent::MouseButtonPress, local, scene, scene, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease, local, scene, scene, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(canvas, &press);
+        QCoreApplication::sendEvent(canvas, &release);
+        settle(150);
+    }
+    const bool clickOk = doc && doc->textCount() == 2 && window->activeFocusItem()
+        && QByteArray(window->activeFocusItem()->metaObject()->className()).contains("TextEdit");
+    std::fprintf(stdout, "mouse click: blocks %d, focus %s\n", doc ? doc->textCount() : -1,
+                 clickOk ? "TextEdit" : "elsewhere");
+
+    const bool ok = gridOk && textOk && clickOk;
     std::fprintf(stdout, ok ? "window probe ok\n" : "window probe FAILED\n");
     return ok ? 0 : 1;
 }

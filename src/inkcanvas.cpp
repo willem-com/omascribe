@@ -531,7 +531,9 @@ PointerInfo inspectPointer(const QPointerEvent *event)
         info.eraser = true;
         break;
     case QPointingDevice::PointerType::Finger:
-        info.kind = InkCanvas::Pointer::Finger;
+        // A touchpad click also says Finger; only the glass is a touch.
+        info.kind = dev->type() == QInputDevice::DeviceType::TouchScreen
+            ? InkCanvas::Pointer::Finger : InkCanvas::Pointer::Mouse;
         break;
     default:
         if (dev->type() == QInputDevice::DeviceType::Stylus)
@@ -882,6 +884,9 @@ void InkCanvas::pointerDown(QPointF local, float pressure, Pointer pointer, bool
         return;
     }
 
+    // A mouse or touchpad click that does not drag is a text tap, not a dot;
+    // the pen's dots are handwriting and stay.
+    m_mouseTap = pointer == Pointer::Mouse;
     beginStroke(m_pressDoc, effectivePressure(pressure));
 }
 
@@ -898,6 +903,8 @@ void InkCanvas::pointerMove(QPointF local, float pressure, Pointer pointer)
             m_textTap = false;
         return;
     }
+    if (m_mouseTap && (doc - m_pressDoc).manhattanLength() > 6)
+        m_mouseTap = false;
 
     if (m_document && wantErase() && !m_liveActive && !m_lassoing
         && !m_movingSelection && (m_activePointer == Pointer::Pen || m_activePointer == Pointer::Mouse)) {
@@ -957,6 +964,16 @@ void InkCanvas::pointerUp(QPointF local, Pointer pointer)
         if (m_document)
             m_document->endErase();
     }
+    if (m_liveActive && m_mouseTap) {
+        m_liveActive = false;
+        m_live = Stroke();
+        m_mouseTap = false;
+        m_activePointer = Pointer::None;
+        update();
+        emit textTapped(doc.x(), doc.y());
+        return;
+    }
+    m_mouseTap = false;
     if (m_liveActive)
         endStroke();
     m_activePointer = Pointer::None;

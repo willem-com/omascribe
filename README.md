@@ -15,7 +15,7 @@ C++), same quiet chrome, same follow-the-desktop light and dark.
 - Notes live as `.omascribe` JSON under `~/.local/share/omascribe/notes/`. Autosave.
 - Inks are named (`ink`, `blue`, `red`, `gray`) and resolved against the paper, so a theme
   change never hides a stroke. `ink` is always the contrasting writing colour.
-- Typed text too: tap the page with one finger (or click with the Text tool, `T`) and type. The block wraps at the width of your handwriting when the ink spans the page, otherwise at a normal reading width from where you tapped. Tap a block to edit it, tap empty paper to leave it. Pen draws over text.
+- Typed text too: click the page with the mouse or touchpad, tap it with one finger, or click with the pen in the Text tool (`T`), then type. The block wraps at the width of your handwriting when the ink spans the page, otherwise at a normal reading width from where you tapped. Tap a block to edit it, tap empty paper to leave it. Pen draws over text.
 - Undo / redo. Title in the page. Note list on the left, like Apple Notes.
 - Ink is drawn as scene-graph geometry with 4x MSAA, so scrolling and hovering cost the CPU nothing.
 - Deleting a note moves it to `~/.local/share/omascribe/trash/`.
