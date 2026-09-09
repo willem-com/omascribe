@@ -1011,7 +1011,7 @@ void InkCanvas::extendStroke(QPointF doc, float pressure)
             InkPoint{float(doc.x()), float(doc.y()), pressure},
         };
         m_live.recomputeBounds();
-        autoGrowAndFollow(doc);
+        autoGrow(doc);
         update();
         return;
     }
@@ -1024,7 +1024,7 @@ void InkCanvas::extendStroke(QPointF doc, float pressure)
     }
     m_live.points.append(InkPoint{float(doc.x()), float(doc.y()), pressure});
     m_live.recomputeBounds();
-    autoGrowAndFollow(doc);
+    autoGrow(doc);
     update();
 }
 
@@ -1061,10 +1061,11 @@ void InkCanvas::clampView()
     }
 }
 
-void InkCanvas::autoGrowAndFollow(QPointF doc)
+// The page grows under the pen but never moves on its own: scrolling is
+// always the user's gesture (Willem, 9 Sep 2026).
+void InkCanvas::autoGrow(QPointF doc)
 {
-    if (doc.y() > m_viewY + height() - 72)
-        setViewY(doc.y() - height() + 72);
+    Q_UNUSED(doc);
     emit documentHeightChanged();
 }
 

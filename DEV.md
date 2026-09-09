@@ -156,7 +156,7 @@ The pen is not Bluetooth. It talks to the ILITEK digitizer. Flat battery was the
 
 ### Dot grid
 
-Hidden while writing. Any user scroll (wheel, finger, stylus upper button, middle mouse) shows it at once, holds 650 ms, then fades over 400 ms (`revealGrid()` in `inkcanvas.cpp`, a `QSGOpacityNode` around the grid). The auto-follow scroll while writing near the bottom does not reveal it. Willem's request, 9 Sep 2026.
+Hidden while writing. Any user scroll (wheel, finger, stylus upper button, middle mouse) shows it at once, holds 650 ms, then fades over 400 ms (`revealGrid()` in `inkcanvas.cpp`, a `QSGOpacityNode` around the grid). Nothing else moves the page. Willem's request, 9 Sep 2026.
 
 ### Gestures
 
@@ -206,6 +206,8 @@ When Willem says "look at my drawing", read `current.json` then `current.png`. D
 6. Lower stylus button is eraser (Framework default). Upper is pan, not a desktop right-click menu.
 7. Delete goes to `trash/`, never straight to unlink.
 8. Export is one filled outline path per stroke (the reflection page went from 2.4 MB to well under 300 KB); do not return to a polygon plus circle per segment.
+9. Scrolling is always manual. The page grows under the pen but never follows it (the old `autoGrowAndFollow` nudge near the bottom edge is gone, 9 Sep 2026). Do not add auto-scroll.
+10. Dot grid only during a user scroll; plain paper otherwise.
 
 ## Open / next
 

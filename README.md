@@ -8,7 +8,7 @@ C++), same quiet chrome, same follow-the-desktop light and dark.
 
 ## What it does
 
-- Infinite page on the vertical axis. The paper grows as you write down it.
+- Infinite page on the vertical axis. The paper grows as you write down it, but never scrolls on its own.
 - Plain paper. The dot grid appears only while you scroll, then fades.
 - Fineliner with pressure. Finger pans. Wheel pans. Palm is ignored while the pen is down.
 - Eraser removes whole strokes. Lasso selects and moves. Ruler snaps a stroke to 15 degree lines.

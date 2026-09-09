@@ -106,7 +106,7 @@ private:
     void syncCursor(QSGGeometryNode *dot, QSGGeometryNode *ring);
     void invalidateStrokeNodes();
     void clampView();
-    void autoGrowAndFollow(QPointF doc);
+    void autoGrow(QPointF doc);
     QPointF rulerPoint(QPointF start, QPointF current) const;
     float effectivePressure(float pressure) const;
     bool selectionContains(QPointF doc) const;
