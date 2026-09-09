@@ -6,3 +6,4 @@ Makefile
 .qmake.stash
 *.user
 omawrite-ref/
+__pycache__/
